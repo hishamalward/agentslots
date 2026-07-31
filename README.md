@@ -140,6 +140,13 @@ runs, evidence and all, verbatim from the source project.
 - **A lock file is a claim, not an authority.** The simulator lock always re-verifies its holder
   against the OS (process alive, device still booted) before trusting it, so a crashed agent
   cannot strand the lock for everyone else.
+- **The exclusive resource is protected by testing beneath it.** The device simulator is the one
+  resource that cannot be slotted, so the design assumes demand for it is a last resort: logic is
+  proved in the headless unit suite, API behavior against a local server, screen logic with
+  component tests (React Native Testing Library and the like), and only pixels, scroll physics
+  and native modules ever claim the lock. The cheaper the lower layers are, the less the one
+  unsharable resource is contended; moving logic into shared packages moves work from the locked
+  layer to the free one.
 - **Absence of configuration preserves today's behavior.** Every environment variable this design
   introduces defaults to the value that already existed. The feature cannot break the normal path
   by being unset.
