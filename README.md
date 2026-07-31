@@ -143,6 +143,12 @@ runs, evidence and all, verbatim from the source project.
 - **Absence of configuration preserves today's behavior.** Every environment variable this design
   introduces defaults to the value that already existed. The feature cannot break the normal path
   by being unset.
+- **Concurrency prices the protocol, not just the resources.** The tiers make per-stream cost
+  scale with need; the same principle applies to the rules themselves. `agent-status.sh` is the
+  gate: when it shows no other worktrees and no other slots, the protocol collapses to working
+  where you are (with explicit-path commits), plus a fresh status check before anything
+  long-running, since another agent can appear mid-session. A coordination system that charges a
+  solo operator its full ceremony is over-engineering wearing a uniform.
 - **Collisions fail loudly, at setup, or not at all.** A preflight check that refuses and changes
   nothing beats a half-provisioned worktree that looks ready and behaves wrong three hours later.
 - Full design rationale, including the founder rulings behind each locked-in choice: `docs/design.md`.
