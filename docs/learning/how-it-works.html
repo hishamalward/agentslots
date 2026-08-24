@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How agent-slots works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace;
+
+    --bg: #faf8f4;
+    --bg-raised: #ffffff;
+    --bg-inset: #f1ede4;
+    --text: #232019;
+    --text-dim: #5b564a;
+    --text-faint: #8a8478;
+    --border: #ddd6c7;
+    --border-strong: #c7bfa9;
+    --accent: #8a4f2e;
+    --accent-strong: #6e3d21;
+    --link: #6e4a1f;
+    --code-bg: #efe9db;
+    --code-text: #4a3a1e;
+    --placeholder-bg: #fff2e0;
+    --placeholder-border: #d99a4e;
+    --placeholder-text: #8a5a1a;
+    --details-bg: #f4f0e5;
+    --details-border: #d9d2bd;
+    --table-head-bg: #efe8d8;
+    --table-stripe: #f5f1e6;
+    --shadow: 0 1px 3px rgba(30, 24, 10, 0.08), 0 1px 2px rgba(30, 24, 10, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f;
+      --bg-raised: #211d16;
+      --bg-inset: #1d1a13;
+      --text: #ece6d6;
+      --text-dim: #b8b09b;
+      --text-faint: #85806f;
+      --border: #38321f;
+      --border-strong: #4a4326;
+      --accent: #e0a066;
+      --accent-strong: #f0b47c;
+      --link: #e2b071;
+      --code-bg: #241f16;
+      --code-text: #e6c98c;
+      --placeholder-bg: #2c2312;
+      --placeholder-border: #7a5423;
+      --placeholder-text: #e0a655;
+      --details-bg: #1d1a12;
+      --details-border: #362f1e;
+      --table-head-bg: #241f15;
+      --table-stripe: #1c1911;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html { color-scheme: light dark; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-serif);
+    font-size: 18px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 76rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 6rem;
+  }
+
+  header.masthead {
+    max-width: 70ch;
+    margin: 0 auto 2.5rem;
+  }
+
+  h1 {
+    font-family: var(--font-sans);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.5rem;
+    color: var(--text);
+  }
+
+  .rendered-note {
+    font-family: var(--font-sans);
+    font-size: 0.92rem;
+    color: var(--text-faint);
+    margin: 0;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 70ch);
+    gap: 3rem;
+    justify-content: center;
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+      justify-content: stretch;
+      justify-items: stretch;
+    }
+    nav.toc {
+      position: static !important;
+      width: 100%;
+      max-width: 70ch;
+      margin: 0 auto 2rem;
+    }
+    article {
+      max-width: none;
+      width: 100%;
+      margin: 0;
+    }
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 1.75rem;
+    align-self: start;
+    font-family: var(--font-sans);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    box-shadow: var(--shadow);
+  }
+
+  nav.toc .toc-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin-bottom: 0.6rem;
+  }
+
+  nav.toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: toc;
+  }
+
+  nav.toc li {
+    counter-increment: toc;
+    margin: 0 0 0.5rem;
+  }
+
+  nav.toc a {
+    display: block;
+    font-size: 0.88rem;
+    line-height: 1.35;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    padding-left: 0.6rem;
+  }
+
+  nav.toc a::before {
+    content: counter(toc) ". ";
+    color: var(--text-faint);
+  }
+
+  nav.toc a:hover {
+    color: var(--accent-strong);
+    border-left-color: var(--accent);
+  }
+
+  article {
+    min-width: 0;
+    width: 100%;
+  }
+
+  article > section {
+    margin-bottom: 3rem;
+    scroll-margin-top: 1.5rem;
+  }
+
+  h2 {
+    font-family: var(--font-sans);
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+    margin: 0 0 1.1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  p { margin: 0 0 1.1rem; }
+
+  a { color: var(--link); text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
+  a:hover { text-decoration-thickness: 2px; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    word-break: break-word;
+  }
+
+  strong { color: var(--text); font-weight: 700; }
+
+  .placeholder {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--placeholder-bg);
+    color: var(--placeholder-text);
+    border: 1px dashed var(--placeholder-border);
+    border-radius: 5px;
+    padding: 0.15em 0.55em;
+  }
+
+  /* Diagram */
+  .diagram-wrap {
+    max-width: 42rem;
+    margin: 0 auto;
+  }
+  .diagram-frame {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  .diagram-frame svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 auto;
+  }
+  .diagram-dark { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .diagram-light { display: none; }
+    :root:not([data-theme="light"]) .diagram-dark { display: block; }
+  }
+  .diagram-caption {
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    color: var(--text-faint);
+    text-align: center;
+    margin-top: 0.75rem;
+  }
+
+  /* Run-order code notes */
+  .code-note {
+    margin: 0 0 1.4rem;
+    padding-left: 1rem;
+    border-left: 3px solid var(--border-strong);
+  }
+  .code-note .code-note-head {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--text);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+  .code-note .why {
+    color: var(--text-dim);
+  }
+  .code-note .why-label {
+    font-family: var(--font-sans);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 0.78em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+  }
+
+  /* Table */
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    background: var(--bg-raised);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 760px;
+    font-size: 0.92rem;
+  }
+  caption {
+    text-align: left;
+    font-family: var(--font-sans);
+    font-size: 0.82rem;
+    color: var(--text-faint);
+    padding: 0.6rem 0.9rem 0;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--table-head-bg);
+    white-space: nowrap;
+  }
+  tbody tr:nth-child(even) { background: var(--table-stripe); }
+  tbody tr:last-child td { border-bottom: none; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+
+  /* Interview Q&A */
+  .qa { margin: 0 0 1.5rem; }
+  .qa .q {
+    display: block;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.4rem;
+  }
+
+  /* Details / self-check */
+  details {
+    background: var(--details-bg);
+    border: 1px solid var(--details-border);
+    border-radius: 10px;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 0.85rem;
+  }
+  details[open] { padding-bottom: 1rem; }
+  summary {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 0.98rem;
+    cursor: pointer;
+    color: var(--text);
+    list-style: none;
+    position: relative;
+    padding-left: 1.4rem;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    transition: transform 0.15s ease;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  details p {
+    margin: 0.7rem 0 0;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--details-border);
+    color: var(--text-dim);
+  }
+
+  footer {
+    max-width: 70ch;
+    margin: 3rem auto 0;
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    color: var(--text-faint);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <h1>How agent-slots works</h1>
+  <p class="rendered-note">Rendered from <code>docs/learning/how-it-works.md</code> — that file is canonical.</p>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#story">The story, in one paragraph</a></li>
+      <li><a href="#one-run">One run</a></li>
+      <li><a href="#code">The code, in run order</a></li>
+      <li><a href="#numbers">The numbers</a></li>
+      <li><a href="#how-to-read">How to read agent-status</a></li>
+      <li><a href="#interview">Interview answers</a></li>
+      <li><a href="#check-yourself">Check yourself</a></li>
+    </ol>
+  </nav>
+
+  <article>
+
+    <p>For whoever owns this next, including me in six months. It assumes the README and aims
+    to let you defend every number without opening the code. <a href="../design.md">docs/design.md</a> is
+    the contract, <a href="../acceptance.md">docs/acceptance.md</a> the evidence, <a href="../lessons.md">docs/lessons.md</a> the scars; this is the tour.</p>
+
+    <section id="story">
+      <h2>The story, in one paragraph</h2>
+<p>Two coding agents worked one repository in two Git worktrees and each ran a dev server. Both servers pointed at the same PostgreSQL database and, inside it, the same pg-boss job queue. The queue handed a scheduled job to whichever server claimed it first; that server ran older code with a handler that had no due-check, and it ran the job for every user on the wrong day. The first diagnosis, "a cron schedule got rewritten," was wrong. The real cause was that a worktree isolates files and nothing else. agent-slots is the smallest fix: one integer, <code>AGENT_SLOT</code>, derives a sibling worktree, a cloned database, two ports, and a queue schema, and only slot 0, the original checkout, may register recurring schedules. State is read live from Git, lsof, and Postgres, never from a registry file. Sixty tests run in CI; the acceptance run left the main database's 10 schedule rows untouched while two slots ran.</p>
+<div class="table-scroll">
+<table>
+<caption>Scroll horizontally on narrow screens.</caption>
+<thead><tr><th>Resource</th><th>Derivation</th><th>Example (slot 1)</th></tr></thead>
+<tbody>
+<tr><td>---</td><td>---</td><td>---</td></tr>
+<tr><td><code>agent_slot</code></td><td>N; slot 0 = main</td><td>1</td></tr>
+<tr><td>Worktree</td><td><code>../&lt;prefix&gt;&lt;branch-slug&gt;</code>, sibling, never nested</td><td><code>../demo-feat-search</code></td></tr>
+<tr><td>Database</td><td><code>&lt;prefix&gt;N</code>; slot 0: <code>&lt;slug&gt;_dev</code></td><td><code>demo_a1</code></td></tr>
+<tr><td>Web port</td><td><code>3000 + 100·N</code></td><td>3100</td></tr>
+<tr><td>Bundler port</td><td><code>8081 + 100·N</code></td><td>8181</td></tr>
+<tr><td>Queue schema</td><td><code>pgboss_aN</code>; slot 0: <code>pgboss</code></td><td><code>pgboss_a1</code></td></tr>
+<tr><td>Schedule owner</td><td><code>N == 0</code></td><td>no</td></tr>
+</tbody></table></div>
+<p>Every formula lives once, in <code>scripts/lib/agent-slot.sh</code>, and every other script sources it. That is why eight scripts cannot disagree about what slot 3's database is called.</p>
+    </section>
+
+    <section id="one-run">
+      <h2>One run</h2>
+      <div class="diagram-wrap">
+        <div class="diagram-frame">
+          <svg class="diagram-svg diagram-light" width="100%" id="hiw-diagram-light" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 1082.93px; background-color: transparent;" viewBox="0 0 1082.9296875 2630" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#hiw-diagram-light{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#333;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#hiw-diagram-light .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#hiw-diagram-light .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#hiw-diagram-light .error-icon{fill:#552222;}#hiw-diagram-light .error-text{fill:#552222;stroke:#552222;}#hiw-diagram-light .edge-thickness-normal{stroke-width:1px;}#hiw-diagram-light .edge-thickness-thick{stroke-width:3.5px;}#hiw-diagram-light .edge-pattern-solid{stroke-dasharray:0;}#hiw-diagram-light .edge-thickness-invisible{stroke-width:0;fill:none;}#hiw-diagram-light .edge-pattern-dashed{stroke-dasharray:3;}#hiw-diagram-light .edge-pattern-dotted{stroke-dasharray:2;}#hiw-diagram-light .marker{fill:#333333;stroke:#333333;}#hiw-diagram-light .marker.cross{stroke:#333333;}#hiw-diagram-light svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#hiw-diagram-light p{margin:0;}#hiw-diagram-light .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#333;}#hiw-diagram-light .cluster-label text{fill:#333;}#hiw-diagram-light .cluster-label span{color:#333;}#hiw-diagram-light .cluster-label span p{background-color:transparent;}#hiw-diagram-light .label text,#hiw-diagram-light span{fill:#333;color:#333;}#hiw-diagram-light .node rect,#hiw-diagram-light .node circle,#hiw-diagram-light .node ellipse,#hiw-diagram-light .node polygon,#hiw-diagram-light .node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#hiw-diagram-light .rough-node .label text,#hiw-diagram-light .node .label text,#hiw-diagram-light .image-shape .label,#hiw-diagram-light .icon-shape .label{text-anchor:middle;}#hiw-diagram-light .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#hiw-diagram-light .rough-node .label,#hiw-diagram-light .node .label,#hiw-diagram-light .image-shape .label,#hiw-diagram-light .icon-shape .label{text-align:center;}#hiw-diagram-light .node.clickable{cursor:pointer;}#hiw-diagram-light .root .anchor path{fill:#333333!important;stroke-width:0;stroke:#333333;}#hiw-diagram-light .arrowheadPath{fill:#333333;}#hiw-diagram-light .edgePath .path{stroke:#333333;stroke-width:1px;}#hiw-diagram-light .flowchart-link{stroke:#333333;fill:none;}#hiw-diagram-light .edgeLabel{background-color:rgba(232,232,232, 0.8);text-align:center;}#hiw-diagram-light .edgeLabel p{background-color:rgba(232,232,232, 0.8);}#hiw-diagram-light .edgeLabel rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232, 0.8);}#hiw-diagram-light .labelBkg{background-color:rgba(232, 232, 232, 0.5);}#hiw-diagram-light .cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}#hiw-diagram-light .cluster text{fill:#333;}#hiw-diagram-light .cluster span{color:#333;}#hiw-diagram-light .node .collapsed-indicator{fill:#aaaa33;stroke:none;opacity:0.6;}#hiw-diagram-light .node .collapsed-separator{stroke:#aaaa33;stroke-width:0.75px;}#hiw-diagram-light div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(80, 100%, 96.2745098039%);border:1px solid #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#hiw-diagram-light .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#333;}#hiw-diagram-light rect.text{fill:none;stroke-width:0;}#hiw-diagram-light .icon-shape,#hiw-diagram-light .image-shape{background-color:rgba(232,232,232, 0.8);text-align:center;}#hiw-diagram-light .icon-shape p,#hiw-diagram-light .image-shape p{background-color:rgba(232,232,232, 0.8);padding:2px;}#hiw-diagram-light .icon-shape .label rect,#hiw-diagram-light .image-shape .label rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232, 0.8);}#hiw-diagram-light .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#hiw-diagram-light .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#hiw-diagram-light .node .neo-node{stroke:#9370DB;}#hiw-diagram-light [data-look="neo"].node rect,#hiw-diagram-light [data-look="neo"].cluster rect,#hiw-diagram-light [data-look="neo"].node polygon{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#hiw-diagram-light [data-look="neo"].swimlane.cluster rect{filter:none;}#hiw-diagram-light [data-look="neo"].node path{stroke:#9370DB;stroke-width:1px;}#hiw-diagram-light [data-look="neo"].node .outer-path{filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#hiw-diagram-light [data-look="neo"].node .neo-line path{stroke:#9370DB;filter:none;}#hiw-diagram-light [data-look="neo"].node circle{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#hiw-diagram-light [data-look="neo"].node circle .state-start{fill:#000000;}#hiw-diagram-light [data-look="neo"].icon-shape .icon{fill:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#hiw-diagram-light [data-look="neo"].icon-shape .icon-neo path{stroke:#9370DB;filter:drop-shadow(1px 2px 2px rgba(185, 185, 185, 1));}#hiw-diagram-light :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="my-svg_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"/></marker><marker id="my-svg_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M274.871,86L274.871,90.167C274.871,94.333,274.871,102.667,274.871,110.333C274.871,118,274.871,125,274.871,128.5L274.871,132" id="my-svg-L_A_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_C_0" data-points="W3sieCI6Mjc0Ljg3MTA5Mzc1LCJ5Ijo4Nn0seyJ4IjoyNzQuODcxMDkzNzUsInkiOjExMX0seyJ4IjoyNzQuODcxMDkzNzUsInkiOjEzNn1d" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M207.042,238L193.521,248.167C180,258.333,152.957,278.667,139.435,308.333C125.914,338,125.914,377,125.914,396.5L125.914,416" id="my-svg-L_C_RC_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_RC_0" data-points="W3sieCI6MjA3LjA0MjQ0NTU5MTUxNzg2LCJ5IjoyMzh9LHsieCI6MTI1LjkxNDA2MjUsInkiOjI5OX0seyJ4IjoxMjUuOTE0MDYyNSwieSI6NDIwfV0=" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M342.7,238L356.221,248.167C369.743,258.333,396.785,278.667,410.307,298.333C423.828,318,423.828,337,423.828,346.5L423.828,356" id="my-svg-L_C_P_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_P_0" data-points="W3sieCI6MzQyLjY5OTc0MTkwODQ4MjEsInkiOjIzOH0seyJ4Ijo0MjMuODI4MTI1LCJ5IjoyOTl9LHsieCI6NDIzLjgyODEyNSwieSI6MzYwfV0=" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M302.287,534L293.672,540.167C285.057,546.333,267.828,558.667,259.213,576.333C250.598,594,250.598,617,250.598,628.5L250.598,640" id="my-svg-L_P_RP_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_P_RP_0" data-points="W3sieCI6MzAyLjI4NzM5Mjg5MzE0NTIsInkiOjUzNH0seyJ4IjoyNTAuNTk3NjU2MjUsInkiOjU3MX0seyJ4IjoyNTAuNTk3NjU2MjUsInkiOjY0NH1d" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M545.369,534L553.984,540.167C562.599,546.333,579.829,558.667,588.444,570.333C597.059,582,597.059,593,597.059,598.5L597.059,604" id="my-svg-L_P_S_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_P_S_0" data-points="W3sieCI6NTQ1LjM2ODg1NzEwNjg1NDksInkiOjUzNH0seyJ4Ijo1OTcuMDU4NTkzNzUsInkiOjU3MX0seyJ4Ijo1OTcuMDU4NTkzNzUsInkiOjYwOH1d" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M517.753,758L511.232,764.167C504.712,770.333,491.67,782.667,485.15,800.333C478.629,818,478.629,841,478.629,852.5L478.629,864" id="my-svg-L_S_RS_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_S_RS_0" data-points="W3sieCI6NTE3Ljc1Mjk5OTQ0MTk2NDMsInkiOjc1OH0seyJ4Ijo0NzguNjI4OTA2MjUsInkiOjc5NX0seyJ4Ijo0NzguNjI4OTA2MjUsInkiOjg2OH1d" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M676.364,758L682.885,764.167C689.406,770.333,702.447,782.667,708.968,794.333C715.488,806,715.488,817,715.488,822.5L715.488,828" id="my-svg-L_S_T_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_S_T_0" data-points="W3sieCI6Njc2LjM2NDE4ODA1ODAzNTcsInkiOjc1OH0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjc5NX0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjgzMn1d" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M715.488,958L715.488,962.167C715.488,966.333,715.488,974.667,715.488,982.333C715.488,990,715.488,997,715.488,1000.5L715.488,1004" id="my-svg-L_T_I_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_T_I_0" data-points="W3sieCI6NzE1LjQ4ODI4MTI1LCJ5Ijo5NTh9LHsieCI6NzE1LjQ4ODI4MTI1LCJ5Ijo5ODN9LHsieCI6NzE1LjQ4ODI4MTI1LCJ5IjoxMDA4fV0=" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M715.488,1110L715.488,1114.167C715.488,1118.333,715.488,1126.667,715.488,1134.333C715.488,1142,715.488,1149,715.488,1152.5L715.488,1156" id="my-svg-L_I_H_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_I_H_0" data-points="W3sieCI6NzE1LjQ4ODI4MTI1LCJ5IjoxMTEwfSx7IngiOjcxNS40ODgyODEyNSwieSI6MTEzNX0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjExNjB9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M715.488,1286L715.488,1290.167C715.488,1294.333,715.488,1302.667,715.488,1310.333C715.488,1318,715.488,1325,715.488,1328.5L715.488,1332" id="my-svg-L_H_E_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_H_E_0" data-points="W3sieCI6NzE1LjQ4ODI4MTI1LCJ5IjoxMjg2fSx7IngiOjcxNS40ODgyODEyNSwieSI6MTMxMX0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjEzMzZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M585.488,1471.465L571.322,1478.054C557.155,1484.643,528.822,1497.822,514.655,1515.078C500.488,1532.333,500.488,1553.667,500.488,1579C500.488,1604.333,500.488,1633.667,500.488,1665C500.488,1696.333,500.488,1729.667,500.488,1761C500.488,1792.333,500.488,1821.667,505.045,1843.928C509.602,1866.19,518.716,1881.38,523.273,1888.975L527.83,1896.57" id="my-svg-L_E_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_RB_0" data-points="W3sieCI6NTg1LjQ4ODI4MTI1LCJ5IjoxNDcxLjQ2NTExNjI3OTA2OTd9LHsieCI6NTAwLjQ4ODI4MTI1LCJ5IjoxNTExfSx7IngiOjUwMC40ODgyODEyNSwieSI6MTU3NX0seyJ4Ijo1MDAuNDg4MjgxMjUsInkiOjE2NjN9LHsieCI6NTAwLjQ4ODI4MTI1LCJ5IjoxNzYzfSx7IngiOjUwMC40ODgyODEyNSwieSI6MTg1MX0seyJ4Ijo1MjkuODg4MjgxMjUsInkiOjE5MDB9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M777.363,1486L780.801,1490.167C784.238,1494.333,791.113,1502.667,794.551,1510.333C797.988,1518,797.988,1525,797.988,1528.5L797.988,1532" id="my-svg-L_E_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_D_0" data-points="W3sieCI6Nzc3LjM2MzI4MTI1LCJ5IjoxNDg2fSx7IngiOjc5Ny45ODgyODEyNSwieSI6MTUxMX0seyJ4Ijo3OTcuOTg4MjgxMjUsInkiOjE1MzZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M729.295,1614L714.911,1622.167C700.526,1630.333,671.757,1646.667,657.373,1671.5C642.988,1696.333,642.988,1729.667,642.988,1761C642.988,1792.333,642.988,1821.667,636.675,1843.986C630.362,1866.305,617.735,1881.61,611.422,1889.262L605.109,1896.915" id="my-svg-L_D_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_RB_0" data-points="W3sieCI6NzI5LjI5NTA5OTQzMTgxODIsInkiOjE2MTR9LHsieCI6NjQyLjk4ODI4MTI1LCJ5IjoxNjYzfSx7IngiOjY0Mi45ODgyODEyNSwieSI6MTc2M30seyJ4Ijo2NDIuOTg4MjgxMjUsInkiOjE4NTF9LHsieCI6NjAyLjU2MzI4MTI1LCJ5IjoxOTAwfV0=" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M842.705,1614L852.068,1622.167C861.432,1630.333,880.159,1646.667,889.523,1662.333C898.887,1678,898.887,1693,898.887,1700.5L898.887,1708" id="my-svg-L_D_Q_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_Q_0" data-points="W3sieCI6ODQyLjcwNDYzNDIzMjk1NDUsInkiOjE2MTR9LHsieCI6ODk4Ljg4NjcxODc1LCJ5IjoxNjYzfSx7IngiOjg5OC44ODY3MTg3NSwieSI6MTcxMn1d" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M835.741,1814L828.106,1820.167C820.471,1826.333,805.2,1838.667,779.438,1852.734C753.677,1866.801,717.423,1882.601,699.297,1890.502L681.17,1898.402" id="my-svg-L_Q_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_Q_RB_0" data-points="W3sieCI6ODM1Ljc0MTE2NjU0ODI5NTUsInkiOjE4MTR9LHsieCI6Nzg5LjkyOTY4NzUsInkiOjE4NTF9LHsieCI6Njc3LjUwMzM5ODQzNzUsInkiOjE5MDB9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M925.571,1814L928.797,1820.167C932.024,1826.333,938.477,1838.667,941.703,1850.333C944.93,1862,944.93,1873,944.93,1878.5L944.93,1884" id="my-svg-L_Q_R_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_Q_R_0" data-points="W3sieCI6OTI1LjU3MDcxMjAwMjg0MDksInkiOjE4MTR9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjE4NTF9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjE4ODh9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M944.93,2014L944.93,2018.167C944.93,2022.333,944.93,2030.667,944.93,2038.333C944.93,2046,944.93,2053,944.93,2056.5L944.93,2060" id="my-svg-L_R_DEV_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_R_DEV_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjIwMTR9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIwMzl9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIwNjR9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M944.93,2166L944.93,2170.167C944.93,2174.333,944.93,2182.667,944.93,2190.333C944.93,2198,944.93,2205,944.93,2208.5L944.93,2212" id="my-svg-L_DEV_ST_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_DEV_ST_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjIxNjZ9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIxOTF9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIyMTZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M944.93,2294L944.93,2298.167C944.93,2302.333,944.93,2310.667,944.93,2318.333C944.93,2326,944.93,2333,944.93,2336.5L944.93,2340" id="my-svg-L_ST_STOP_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_ST_STOP_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjIyOTR9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIzMTl9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIzNDR9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/><path d="M944.93,2446L944.93,2450.167C944.93,2454.333,944.93,2462.667,944.93,2470.333C944.93,2478,944.93,2485,944.93,2488.5L944.93,2492" id="my-svg-L_STOP_DOWN_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_STOP_DOWN_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjI0NDZ9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjI0NzF9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjI0OTZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-light_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(125.9140625, 299)"><g class="label" data-id="L_C_RC_0" transform="translate(-100, -36)"><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>slot max &gt; 99, port &gt; 65535, db name &gt; 63 bytes, .. in app path</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_P_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(250.59765625, 571)"><g class="label" data-id="L_P_RP_0" transform="translate(-53.0703125, -12)"><foreignObject width="106.140625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>any check fails</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_P_S_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(478.62890625, 795)"><g class="label" data-id="L_S_RS_0" transform="translate(-78.7890625, -12)"><foreignObject width="157.578125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>no free slot / no tools</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_S_T_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_T_I_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_I_H_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_H_E_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(500.48828125, 1663)"><g class="label" data-id="L_E_RB_0" transform="translate(-100, -24)"><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>DATABASE_URL has query parameters</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_E_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(642.98828125, 1763)"><g class="label" data-id="L_D_RB_0" transform="translate(-36.796875, -12)"><foreignObject width="73.59375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>clone fails</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_D_Q_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(760.70789, 1863.73606)"><g class="label" data-id="L_Q_RB_0" transform="translate(-72.0859375, -12)"><foreignObject width="144.171875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>schema still present</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_Q_R_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_R_DEV_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_DEV_ST_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_ST_STOP_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_STOP_DOWN_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="my-svg-flowchart-A-0" data-look="classic" transform="translate(274.87109375, 47)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-up.sh feat/search --stack</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-C-1" data-look="classic" transform="translate(274.87109375, 187)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>load .agent-slots.conf from the main worktree; agent_config_validate</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RC-3" data-look="classic" transform="translate(125.9140625, 447)"><rect class="basic label-container" style="" x="-117.9140625" y="-27" width="235.828125" height="54"/><g class="label" style="" transform="translate(-87.9140625, -12)"><rect/><foreignObject width="175.828125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>refused, nothing written</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-P-5" data-look="classic" transform="translate(423.828125, 447)"><rect class="basic label-container" style="" x="-130" y="-87" width="260" height="174"/><g class="label" style="" transform="translate(-100, -72)"><rect/><foreignObject width="200" height="144"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>preflight, touching nothing: branch valid, main exists, .agent ignored, worktree path free, branch not checked out elsewhere</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RP-7" data-look="classic" transform="translate(250.59765625, 683)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>refused with the actionable message</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-S-9" data-look="classic" transform="translate(597.05859375, 683)"><rect class="basic label-container" style="" x="-166.4609375" y="-75" width="332.921875" height="150"/><g class="label" style="" transform="translate(-136.4609375, -60)"><rect/><foreignObject width="272.921875" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>stack tier: psql/createdb/dropdb/pg_dump/lsof exist; Postgres answers; lowest free slot; template db exists; main .env has DATABASE_URL</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RS-11" data-look="classic" transform="translate(478.62890625, 895)"><rect class="basic label-container" style="" x="-56.859375" y="-27" width="113.71875" height="54"/><g class="label" style="" transform="translate(-26.859375, -12)"><rect/><foreignObject width="53.71875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>refused</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-T-13" data-look="classic" transform="translate(715.48828125, 895)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>trap rollback ERR; git worktree add (branch created from main first if new)</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-I-15" data-look="classic" transform="translate(715.48828125, 1059)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>.agent marker: stream, handover, branch; handover template if none</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-H-17" data-look="classic" transform="translate(715.48828125, 1223)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>project hook agent_prepare_worktree (node_modules clone, codegen)</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-E-19" data-look="classic" transform="translate(715.48828125, 1411)"><rect class="basic label-container" style="" x="-130" y="-75" width="260" height="150"/><g class="label" style="" transform="translate(-100, -60)"><rect/><foreignObject width="200" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>write slot .env: main env minus slot-owned keys, plus AGENT_SLOT, DATABASE_URL, PGBOSS_SCHEMA</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RB-21" data-look="classic" transform="translate(560.48828125, 1951)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>rollback: drop db, restore env, remove worktree and branch if ours</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-D-23" data-look="classic" transform="translate(797.98828125, 1575)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>createdb; pg_dump main | psql slot, ON_ERROR_STOP</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-Q-27" data-look="classic" transform="translate(898.88671875, 1763)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>DROP SCHEMA pgboss CASCADE; pg_namespace count must read 0</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-R-31" data-look="classic" transform="translate(944.9296875, 1951)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>trap - ERR; summary: worktree, branch, handover, slot, db, queue, ports</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-DEV-33" data-look="classic" transform="translate(944.9296875, 2115)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-dev.sh: refuses code tier, refuses a busy port, exec hook with -p</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-ST-35" data-look="classic" transform="translate(944.9296875, 2255)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-status.sh: derived live from git, lsof, Postgres</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-STOP-37" data-look="classic" transform="translate(944.9296875, 2395)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-stop.sh N: kill by listener, TERM then KILL, release sim lock</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-DOWN-39" data-look="classic" transform="translate(944.9296875, 2559)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-down.sh N: worktree remove (refuses dirty without --force), dropdb, prune</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="my-svg-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs><defs><filter id="my-svg-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"/></filter></defs></svg>
+          <svg class="diagram-svg diagram-dark" width="100%" id="hiw-diagram-dark" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 1082.93px; background-color: transparent;" viewBox="0 0 1082.9296875 2630" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#hiw-diagram-dark{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#ccc;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#hiw-diagram-dark .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#hiw-diagram-dark .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#hiw-diagram-dark .error-icon{fill:#a44141;}#hiw-diagram-dark .error-text{fill:#ddd;stroke:#ddd;}#hiw-diagram-dark .edge-thickness-normal{stroke-width:1px;}#hiw-diagram-dark .edge-thickness-thick{stroke-width:3.5px;}#hiw-diagram-dark .edge-pattern-solid{stroke-dasharray:0;}#hiw-diagram-dark .edge-thickness-invisible{stroke-width:0;fill:none;}#hiw-diagram-dark .edge-pattern-dashed{stroke-dasharray:3;}#hiw-diagram-dark .edge-pattern-dotted{stroke-dasharray:2;}#hiw-diagram-dark .marker{fill:lightgrey;stroke:lightgrey;}#hiw-diagram-dark .marker.cross{stroke:lightgrey;}#hiw-diagram-dark svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#hiw-diagram-dark p{margin:0;}#hiw-diagram-dark .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#ccc;}#hiw-diagram-dark .cluster-label text{fill:#F9FFFE;}#hiw-diagram-dark .cluster-label span{color:#F9FFFE;}#hiw-diagram-dark .cluster-label span p{background-color:transparent;}#hiw-diagram-dark .label text,#hiw-diagram-dark span{fill:#ccc;color:#ccc;}#hiw-diagram-dark .node rect,#hiw-diagram-dark .node circle,#hiw-diagram-dark .node ellipse,#hiw-diagram-dark .node polygon,#hiw-diagram-dark .node path{fill:#1f2020;stroke:#ccc;stroke-width:1px;}#hiw-diagram-dark .rough-node .label text,#hiw-diagram-dark .node .label text,#hiw-diagram-dark .image-shape .label,#hiw-diagram-dark .icon-shape .label{text-anchor:middle;}#hiw-diagram-dark .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#hiw-diagram-dark .rough-node .label,#hiw-diagram-dark .node .label,#hiw-diagram-dark .image-shape .label,#hiw-diagram-dark .icon-shape .label{text-align:center;}#hiw-diagram-dark .node.clickable{cursor:pointer;}#hiw-diagram-dark .root .anchor path{fill:lightgrey!important;stroke-width:0;stroke:lightgrey;}#hiw-diagram-dark .arrowheadPath{fill:lightgrey;}#hiw-diagram-dark .edgePath .path{stroke:lightgrey;stroke-width:1px;}#hiw-diagram-dark .flowchart-link{stroke:lightgrey;fill:none;}#hiw-diagram-dark .edgeLabel{background-color:hsl(0, 0%, 34.4117647059%);text-align:center;}#hiw-diagram-dark .edgeLabel p{background-color:hsl(0, 0%, 34.4117647059%);}#hiw-diagram-dark .edgeLabel rect{opacity:0.5;background-color:hsl(0, 0%, 34.4117647059%);fill:hsl(0, 0%, 34.4117647059%);}#hiw-diagram-dark .labelBkg{background-color:rgba(87.75, 87.75, 87.75, 0.5);}#hiw-diagram-dark .cluster rect{fill:hsl(180, 1.5873015873%, 28.3529411765%);stroke:rgba(255, 255, 255, 0.25);stroke-width:1px;}#hiw-diagram-dark .cluster text{fill:#F9FFFE;}#hiw-diagram-dark .cluster span{color:#F9FFFE;}#hiw-diagram-dark .node .collapsed-indicator{fill:rgba(255, 255, 255, 0.25);stroke:none;opacity:0.6;}#hiw-diagram-dark .node .collapsed-separator{stroke:rgba(255, 255, 255, 0.25);stroke-width:0.75px;}#hiw-diagram-dark div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:hsl(20, 1.5873015873%, 12.3529411765%);border:1px solid rgba(255, 255, 255, 0.25);border-radius:2px;pointer-events:none;z-index:100;}#hiw-diagram-dark .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#ccc;}#hiw-diagram-dark rect.text{fill:none;stroke-width:0;}#hiw-diagram-dark .icon-shape,#hiw-diagram-dark .image-shape{background-color:hsl(0, 0%, 34.4117647059%);text-align:center;}#hiw-diagram-dark .icon-shape p,#hiw-diagram-dark .image-shape p{background-color:hsl(0, 0%, 34.4117647059%);padding:2px;}#hiw-diagram-dark .icon-shape .label rect,#hiw-diagram-dark .image-shape .label rect{opacity:0.5;background-color:hsl(0, 0%, 34.4117647059%);fill:hsl(0, 0%, 34.4117647059%);}#hiw-diagram-dark .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#hiw-diagram-dark .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#hiw-diagram-dark .node .neo-node{stroke:#ccc;}#hiw-diagram-dark [data-look="neo"].node rect,#hiw-diagram-dark [data-look="neo"].cluster rect,#hiw-diagram-dark [data-look="neo"].node polygon{stroke:url(#hiw-diagram-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#hiw-diagram-dark [data-look="neo"].swimlane.cluster rect{filter:none;}#hiw-diagram-dark [data-look="neo"].node path{stroke:url(#hiw-diagram-dark-gradient);stroke-width:1px;}#hiw-diagram-dark [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#hiw-diagram-dark [data-look="neo"].node .neo-line path{stroke:#ccc;filter:none;}#hiw-diagram-dark [data-look="neo"].node circle{stroke:url(#hiw-diagram-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#hiw-diagram-dark [data-look="neo"].node circle .state-start{fill:#000000;}#hiw-diagram-dark [data-look="neo"].icon-shape .icon{fill:url(#hiw-diagram-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#hiw-diagram-dark [data-look="neo"].icon-shape .icon-neo path{stroke:url(#hiw-diagram-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#hiw-diagram-dark :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="my-svg_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"/></marker><marker id="my-svg_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M274.871,86L274.871,90.167C274.871,94.333,274.871,102.667,274.871,110.333C274.871,118,274.871,125,274.871,128.5L274.871,132" id="my-svg-L_A_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_C_0" data-points="W3sieCI6Mjc0Ljg3MTA5Mzc1LCJ5Ijo4Nn0seyJ4IjoyNzQuODcxMDkzNzUsInkiOjExMX0seyJ4IjoyNzQuODcxMDkzNzUsInkiOjEzNn1d" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M207.042,238L193.521,248.167C180,258.333,152.957,278.667,139.435,308.333C125.914,338,125.914,377,125.914,396.5L125.914,416" id="my-svg-L_C_RC_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_RC_0" data-points="W3sieCI6MjA3LjA0MjQ0NTU5MTUxNzg2LCJ5IjoyMzh9LHsieCI6MTI1LjkxNDA2MjUsInkiOjI5OX0seyJ4IjoxMjUuOTE0MDYyNSwieSI6NDIwfV0=" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M342.7,238L356.221,248.167C369.743,258.333,396.785,278.667,410.307,298.333C423.828,318,423.828,337,423.828,346.5L423.828,356" id="my-svg-L_C_P_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_P_0" data-points="W3sieCI6MzQyLjY5OTc0MTkwODQ4MjEsInkiOjIzOH0seyJ4Ijo0MjMuODI4MTI1LCJ5IjoyOTl9LHsieCI6NDIzLjgyODEyNSwieSI6MzYwfV0=" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M302.287,534L293.672,540.167C285.057,546.333,267.828,558.667,259.213,576.333C250.598,594,250.598,617,250.598,628.5L250.598,640" id="my-svg-L_P_RP_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_P_RP_0" data-points="W3sieCI6MzAyLjI4NzM5Mjg5MzE0NTIsInkiOjUzNH0seyJ4IjoyNTAuNTk3NjU2MjUsInkiOjU3MX0seyJ4IjoyNTAuNTk3NjU2MjUsInkiOjY0NH1d" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M545.369,534L553.984,540.167C562.599,546.333,579.829,558.667,588.444,570.333C597.059,582,597.059,593,597.059,598.5L597.059,604" id="my-svg-L_P_S_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_P_S_0" data-points="W3sieCI6NTQ1LjM2ODg1NzEwNjg1NDksInkiOjUzNH0seyJ4Ijo1OTcuMDU4NTkzNzUsInkiOjU3MX0seyJ4Ijo1OTcuMDU4NTkzNzUsInkiOjYwOH1d" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M517.753,758L511.232,764.167C504.712,770.333,491.67,782.667,485.15,800.333C478.629,818,478.629,841,478.629,852.5L478.629,864" id="my-svg-L_S_RS_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_S_RS_0" data-points="W3sieCI6NTE3Ljc1Mjk5OTQ0MTk2NDMsInkiOjc1OH0seyJ4Ijo0NzguNjI4OTA2MjUsInkiOjc5NX0seyJ4Ijo0NzguNjI4OTA2MjUsInkiOjg2OH1d" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M676.364,758L682.885,764.167C689.406,770.333,702.447,782.667,708.968,794.333C715.488,806,715.488,817,715.488,822.5L715.488,828" id="my-svg-L_S_T_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_S_T_0" data-points="W3sieCI6Njc2LjM2NDE4ODA1ODAzNTcsInkiOjc1OH0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjc5NX0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjgzMn1d" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M715.488,958L715.488,962.167C715.488,966.333,715.488,974.667,715.488,982.333C715.488,990,715.488,997,715.488,1000.5L715.488,1004" id="my-svg-L_T_I_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_T_I_0" data-points="W3sieCI6NzE1LjQ4ODI4MTI1LCJ5Ijo5NTh9LHsieCI6NzE1LjQ4ODI4MTI1LCJ5Ijo5ODN9LHsieCI6NzE1LjQ4ODI4MTI1LCJ5IjoxMDA4fV0=" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M715.488,1110L715.488,1114.167C715.488,1118.333,715.488,1126.667,715.488,1134.333C715.488,1142,715.488,1149,715.488,1152.5L715.488,1156" id="my-svg-L_I_H_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_I_H_0" data-points="W3sieCI6NzE1LjQ4ODI4MTI1LCJ5IjoxMTEwfSx7IngiOjcxNS40ODgyODEyNSwieSI6MTEzNX0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjExNjB9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M715.488,1286L715.488,1290.167C715.488,1294.333,715.488,1302.667,715.488,1310.333C715.488,1318,715.488,1325,715.488,1328.5L715.488,1332" id="my-svg-L_H_E_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_H_E_0" data-points="W3sieCI6NzE1LjQ4ODI4MTI1LCJ5IjoxMjg2fSx7IngiOjcxNS40ODgyODEyNSwieSI6MTMxMX0seyJ4Ijo3MTUuNDg4MjgxMjUsInkiOjEzMzZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M585.488,1471.465L571.322,1478.054C557.155,1484.643,528.822,1497.822,514.655,1515.078C500.488,1532.333,500.488,1553.667,500.488,1579C500.488,1604.333,500.488,1633.667,500.488,1665C500.488,1696.333,500.488,1729.667,500.488,1761C500.488,1792.333,500.488,1821.667,505.045,1843.928C509.602,1866.19,518.716,1881.38,523.273,1888.975L527.83,1896.57" id="my-svg-L_E_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_RB_0" data-points="W3sieCI6NTg1LjQ4ODI4MTI1LCJ5IjoxNDcxLjQ2NTExNjI3OTA2OTd9LHsieCI6NTAwLjQ4ODI4MTI1LCJ5IjoxNTExfSx7IngiOjUwMC40ODgyODEyNSwieSI6MTU3NX0seyJ4Ijo1MDAuNDg4MjgxMjUsInkiOjE2NjN9LHsieCI6NTAwLjQ4ODI4MTI1LCJ5IjoxNzYzfSx7IngiOjUwMC40ODgyODEyNSwieSI6MTg1MX0seyJ4Ijo1MjkuODg4MjgxMjUsInkiOjE5MDB9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M777.363,1486L780.801,1490.167C784.238,1494.333,791.113,1502.667,794.551,1510.333C797.988,1518,797.988,1525,797.988,1528.5L797.988,1532" id="my-svg-L_E_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_E_D_0" data-points="W3sieCI6Nzc3LjM2MzI4MTI1LCJ5IjoxNDg2fSx7IngiOjc5Ny45ODgyODEyNSwieSI6MTUxMX0seyJ4Ijo3OTcuOTg4MjgxMjUsInkiOjE1MzZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M729.295,1614L714.911,1622.167C700.526,1630.333,671.757,1646.667,657.373,1671.5C642.988,1696.333,642.988,1729.667,642.988,1761C642.988,1792.333,642.988,1821.667,636.675,1843.986C630.362,1866.305,617.735,1881.61,611.422,1889.262L605.109,1896.915" id="my-svg-L_D_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_RB_0" data-points="W3sieCI6NzI5LjI5NTA5OTQzMTgxODIsInkiOjE2MTR9LHsieCI6NjQyLjk4ODI4MTI1LCJ5IjoxNjYzfSx7IngiOjY0Mi45ODgyODEyNSwieSI6MTc2M30seyJ4Ijo2NDIuOTg4MjgxMjUsInkiOjE4NTF9LHsieCI6NjAyLjU2MzI4MTI1LCJ5IjoxOTAwfV0=" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M842.705,1614L852.068,1622.167C861.432,1630.333,880.159,1646.667,889.523,1662.333C898.887,1678,898.887,1693,898.887,1700.5L898.887,1708" id="my-svg-L_D_Q_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_Q_0" data-points="W3sieCI6ODQyLjcwNDYzNDIzMjk1NDUsInkiOjE2MTR9LHsieCI6ODk4Ljg4NjcxODc1LCJ5IjoxNjYzfSx7IngiOjg5OC44ODY3MTg3NSwieSI6MTcxMn1d" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M835.741,1814L828.106,1820.167C820.471,1826.333,805.2,1838.667,779.438,1852.734C753.677,1866.801,717.423,1882.601,699.297,1890.502L681.17,1898.402" id="my-svg-L_Q_RB_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_Q_RB_0" data-points="W3sieCI6ODM1Ljc0MTE2NjU0ODI5NTUsInkiOjE4MTR9LHsieCI6Nzg5LjkyOTY4NzUsInkiOjE4NTF9LHsieCI6Njc3LjUwMzM5ODQzNzUsInkiOjE5MDB9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M925.571,1814L928.797,1820.167C932.024,1826.333,938.477,1838.667,941.703,1850.333C944.93,1862,944.93,1873,944.93,1878.5L944.93,1884" id="my-svg-L_Q_R_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_Q_R_0" data-points="W3sieCI6OTI1LjU3MDcxMjAwMjg0MDksInkiOjE4MTR9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjE4NTF9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjE4ODh9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M944.93,2014L944.93,2018.167C944.93,2022.333,944.93,2030.667,944.93,2038.333C944.93,2046,944.93,2053,944.93,2056.5L944.93,2060" id="my-svg-L_R_DEV_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_R_DEV_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjIwMTR9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIwMzl9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIwNjR9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M944.93,2166L944.93,2170.167C944.93,2174.333,944.93,2182.667,944.93,2190.333C944.93,2198,944.93,2205,944.93,2208.5L944.93,2212" id="my-svg-L_DEV_ST_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_DEV_ST_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjIxNjZ9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIxOTF9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIyMTZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M944.93,2294L944.93,2298.167C944.93,2302.333,944.93,2310.667,944.93,2318.333C944.93,2326,944.93,2333,944.93,2336.5L944.93,2340" id="my-svg-L_ST_STOP_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_ST_STOP_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjIyOTR9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIzMTl9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjIzNDR9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/><path d="M944.93,2446L944.93,2450.167C944.93,2454.333,944.93,2462.667,944.93,2470.333C944.93,2478,944.93,2485,944.93,2488.5L944.93,2492" id="my-svg-L_STOP_DOWN_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_STOP_DOWN_0" data-points="W3sieCI6OTQ0LjkyOTY4NzUsInkiOjI0NDZ9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjI0NzF9LHsieCI6OTQ0LjkyOTY4NzUsInkiOjI0OTZ9XQ==" data-look="classic" marker-end="url(#hiw-diagram-dark_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(125.9140625, 299)"><g class="label" data-id="L_C_RC_0" transform="translate(-100, -36)"><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>slot max &gt; 99, port &gt; 65535, db name &gt; 63 bytes, .. in app path</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_P_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(250.59765625, 571)"><g class="label" data-id="L_P_RP_0" transform="translate(-53.0703125, -12)"><foreignObject width="106.140625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>any check fails</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_P_S_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(478.62890625, 795)"><g class="label" data-id="L_S_RS_0" transform="translate(-78.7890625, -12)"><foreignObject width="157.578125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>no free slot / no tools</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_S_T_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_T_I_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_I_H_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_H_E_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(500.48828125, 1663)"><g class="label" data-id="L_E_RB_0" transform="translate(-100, -24)"><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="edgeLabel"><p>DATABASE_URL has query parameters</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_E_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(642.98828125, 1763)"><g class="label" data-id="L_D_RB_0" transform="translate(-36.796875, -12)"><foreignObject width="73.59375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>clone fails</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_D_Q_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(760.70789, 1863.73606)"><g class="label" data-id="L_Q_RB_0" transform="translate(-72.0859375, -12)"><foreignObject width="144.171875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>schema still present</p></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_Q_R_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_R_DEV_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_DEV_ST_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_ST_STOP_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_STOP_DOWN_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="my-svg-flowchart-A-0" data-look="classic" transform="translate(274.87109375, 47)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-up.sh feat/search --stack</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-C-1" data-look="classic" transform="translate(274.87109375, 187)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>load .agent-slots.conf from the main worktree; agent_config_validate</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RC-3" data-look="classic" transform="translate(125.9140625, 447)"><rect class="basic label-container" style="" x="-117.9140625" y="-27" width="235.828125" height="54"/><g class="label" style="" transform="translate(-87.9140625, -12)"><rect/><foreignObject width="175.828125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>refused, nothing written</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-P-5" data-look="classic" transform="translate(423.828125, 447)"><rect class="basic label-container" style="" x="-130" y="-87" width="260" height="174"/><g class="label" style="" transform="translate(-100, -72)"><rect/><foreignObject width="200" height="144"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>preflight, touching nothing: branch valid, main exists, .agent ignored, worktree path free, branch not checked out elsewhere</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RP-7" data-look="classic" transform="translate(250.59765625, 683)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>refused with the actionable message</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-S-9" data-look="classic" transform="translate(597.05859375, 683)"><rect class="basic label-container" style="" x="-166.4609375" y="-75" width="332.921875" height="150"/><g class="label" style="" transform="translate(-136.4609375, -60)"><rect/><foreignObject width="272.921875" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>stack tier: psql/createdb/dropdb/pg_dump/lsof exist; Postgres answers; lowest free slot; template db exists; main .env has DATABASE_URL</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RS-11" data-look="classic" transform="translate(478.62890625, 895)"><rect class="basic label-container" style="" x="-56.859375" y="-27" width="113.71875" height="54"/><g class="label" style="" transform="translate(-26.859375, -12)"><rect/><foreignObject width="53.71875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>refused</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-T-13" data-look="classic" transform="translate(715.48828125, 895)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>trap rollback ERR; git worktree add (branch created from main first if new)</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-I-15" data-look="classic" transform="translate(715.48828125, 1059)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>.agent marker: stream, handover, branch; handover template if none</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-H-17" data-look="classic" transform="translate(715.48828125, 1223)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>project hook agent_prepare_worktree (node_modules clone, codegen)</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-E-19" data-look="classic" transform="translate(715.48828125, 1411)"><rect class="basic label-container" style="" x="-130" y="-75" width="260" height="150"/><g class="label" style="" transform="translate(-100, -60)"><rect/><foreignObject width="200" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>write slot .env: main env minus slot-owned keys, plus AGENT_SLOT, DATABASE_URL, PGBOSS_SCHEMA</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-RB-21" data-look="classic" transform="translate(560.48828125, 1951)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>rollback: drop db, restore env, remove worktree and branch if ours</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-D-23" data-look="classic" transform="translate(797.98828125, 1575)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>createdb; pg_dump main | psql slot, ON_ERROR_STOP</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-Q-27" data-look="classic" transform="translate(898.88671875, 1763)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>DROP SCHEMA pgboss CASCADE; pg_namespace count must read 0</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-R-31" data-look="classic" transform="translate(944.9296875, 1951)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>trap - ERR; summary: worktree, branch, handover, slot, db, queue, ports</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-DEV-33" data-look="classic" transform="translate(944.9296875, 2115)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-dev.sh: refuses code tier, refuses a busy port, exec hook with -p</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-ST-35" data-look="classic" transform="translate(944.9296875, 2255)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-status.sh: derived live from git, lsof, Postgres</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-STOP-37" data-look="classic" transform="translate(944.9296875, 2395)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-stop.sh N: kill by listener, TERM then KILL, release sim lock</p></span></div></foreignObject></g></g><g class="node default" id="my-svg-flowchart-DOWN-39" data-look="classic" transform="translate(944.9296875, 2559)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>agent-down.sh N: worktree remove (refuses dirty without --force), dropdb, prune</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="my-svg-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#FFFFFF"/></filter></defs><defs><filter id="my-svg-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#FFFFFF"/></filter></defs><linearGradient id="my-svg-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#cccccc" stop-opacity="1"/><stop offset="100%" stop-color="hsl(180, 0%, 18.3529411765%)" stop-opacity="1"/></linearGradient></svg>
+        </div>
+        <p class="diagram-caption">One <code>agent-up.sh --stack</code> from validation to teardown. Every refusal is printed with the by-hand remedy; every failure after the trap is armed rolls back.</p>
+      </div>
+<p>What actually happens when you type <code>scripts/agent-up.sh feat/search --stack</code> in a project that has a <code>.agent-slots.conf</code>. This is the sequence the demo GIF records.</p>
+<ol><li><strong>Load and validate configuration.</strong> The library reads <code>.agent-slots.conf</code> from the main worktree, never the current one, then <code>agent_config_validate</code> refuses anything that could collide or escape: slot max above 99, a port formula that exceeds 65535 at the top slot, two slots mapping to one port, a database name over 63 bytes, a schema name over 50, an app path with <code>..</code> in it.</li><li><strong>Preflight, touching nothing.</strong> The branch name is valid; main exists; <code>.agent</code> is gitignored; the worktree path is free (or this is an in-place <code>--stack</code> upgrade of a code-tier worktree on the same branch); the branch is not checked out elsewhere; the optional conflict env file does not carry a second <code>DATABASE_URL</code>. For the stack tier: <code>psql</code>, <code>createdb</code>, <code>dropdb</code>, <code>pg_dump</code>, <code>lsof</code> exist; Postgres answers; the lowest slot with no database and no listening port is chosen; the template database exists; the main <code>.env</code> has a non-empty <code>DATABASE_URL</code>.</li><li><strong>Arm the rollback, then create.</strong> <code>trap rollback ERR</code> is set before <code>git worktree add</code>. If the branch does not exist it is created from main as its own atomic step, and only after that succeeds is it marked as ours, so a rollback can never delete a branch another agent created in the same second.</li><li><strong>Write intent.</strong> A gitignored <code>.agent</code> marker records the stream slug, handover path and branch. If no handover exists at <code>docs/plans/&lt;stream&gt;-handover.md</code>, a template is created, untracked, ready to commit.</li><li><strong>Run the project hook.</strong> <code>agent_prepare_worktree main worktree</code>, whatever the project defined: cloning <code>node_modules</code> with <code>cp -Rc</code> (APFS clone), running codegen. The default is a no-op.</li><li><strong>Write the slot env.</strong> Every line of the main <code>.env</code> is copied except the keys the slot owns (<code>AGENT_SLOT</code>, <code>DATABASE_URL</code>, <code>PGBOSS_SCHEMA</code>, the public-URL key), then those are appended. The database URL is the main one with only the trailing database name rewritten; credentials are never synthesised. A URL with query parameters is refused.</li><li><strong>Clone the database.</strong> <code>createdb</code>, then <code>pg_dump main | psql slot</code> with <code>ON_ERROR_STOP</code>. Not <code>CREATE DATABASE ... TEMPLATE</code>, because a template clone fails while any session holds the source, and a dev database always has one.</li><li><strong>Drop the inherited queue schema.</strong> <code>DROP SCHEMA pgboss CASCADE</code> on the clone, then a count of <code>pg_namespace</code> must read 0 or the whole provision rolls back. This is the step that guarantees a non-owner slot can never fire a cron it inherited.</li><li><strong>Disarm and report.</strong> <code>trap - ERR</code>, then the summary block: worktree, branch, handover, slot, database, queue, both ports.</li></ol>
+<p>From inside the worktree, <code>scripts/agent-dev.sh</code> refuses a code-tier tree (no <code>AGENT_SLOT</code> in its env) with the exact upgrade command, refuses if the slot's port is already listening, and otherwise calls the project's <code>agent_start_web</code> hook with the port as an explicit argument. <code>agent-stop.sh 1</code> kills whatever listens on 3100 and 8181 by PID, TERM then KILL, and releases the simulator lock if slot 1 holds it. <code>agent-down.sh 1</code> does that, then removes the worktree (refusing a dirty one without <code>--force</code>), drops the database, and prunes.</p>
+    </section>
+
+    <section id="code">
+      <h2>The code, in run order</h2>
+<p>Eight scripts under <code>scripts/</code>, one library, one probe, one TypeScript integration. The order below is the order a stack slot touches them.</p>
+<div class="code-note">
+<span class="code-note-head"><code>lib/agent-slot.sh</code>, defaults, derivation, reality probes.</span>
+<span>Sourced by every script, never executed, and it sets no shell options. Pure functions (<code>agent_db_name</code>, <code>agent_web_port</code>, <code>agent_worktree_path</code>) sit above the I/O functions (<code>agent_db_exists</code>, <code>agent_port_busy</code>, <code>agent_slot_free</code>), then the project config is sourced last so it can replace hooks.</span>
+<span class="why"> <span class="why-label">Why:</span> a sourced file that sets <code>set -e</code> would change the caller's behaviour; and loading config last means a project can override hooks but the validation still runs against the final values.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>lib/agent-slot.sh</code>, <code>agent_tier_of_worktree</code>, <code>agent_slot_of_worktree</code>.</span>
+<span>A worktree is stack tier exactly when its configured env file contains a line starting <code>AGENT_SLOT=</code>. The <code>.agent</code> marker also says <code>TIER=</code>, but nothing reads it for decisions.</span>
+<span class="why"> <span class="why-label">Why:</span> the env file is what the server actually loads, so tier derived from it cannot disagree with what the server will do. A code-tier worktree returns no slot, never 0: 0 is the main tree and the only schedule owner.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-up.sh</code>, preflight block.</span>
+<span>Every check is a plain test that calls <code>fail</code>; nothing writes to disk until all pass. The "branch already checked out" check parses <code>git worktree list --porcelain</code> once into a variable and greps that.</span>
+<span class="why"> <span class="why-label">Why:</span> under <code>pipefail</code> a non-matching grep in an assignment returns non-zero and <code>set -e</code> aborts before <code>fail</code> can print the actionable message. Same family as the lessons file's "four ways a guard does nothing".</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-up.sh</code>, <code>rollback()</code> and <code>trap rollback ERR</code>.</span>
+<span>Flags <code>CREATED_BRANCH</code>, <code>CREATED_WT</code>, <code>CREATED_DB</code>, <code>ENV_WRITTEN</code> gate each undo step; every undo ends <code>2&gt;/dev/null || true</code>. The script uses <code>set -Eeuo pipefail</code>; the <code>E</code> is what lets the trap fire inside a project hook's functions and subshells. The two <code>fail</code> calls after the trap is armed call <code>rollback</code> explicitly first.</span>
+<span class="why"> <span class="why-label">Why:</span> <code>exit</code> inside a function does not fire the ERR trap; without <code>-E</code> the trap is not inherited; and an unguarded <code>rm -f</code> on the success path would fire a spurious rollback of a provision that already succeeded. All three were found live.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-up.sh</code>, the env rewrite.</span>
+<span><code>awk</code> filters the slot-owned keys out of the main env, then the slot's values are appended with a comment naming the script that wrote them. A pre-existing env (the upgrade path) is backed up to <code>mktemp</code> in the system temp dir so rollback can restore it byte for byte.</span>
+<span class="why"> <span class="why-label">Why:</span> the backup lives outside the worktree because an untracked sibling file would make <code>git worktree remove</code> refuse and the reaper call the tree dirty. <code>awk</code> rather than <code>grep -v</code> because <code>grep -v</code> exits 1 when it filters every line.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-dev.sh</code>, <code>agent-mobile.sh</code>.</span>
+<span>Derive tier and slot, refuse code tier with the upgrade command, refuse a busy port, then <code>exec</code> the project hook with the port as an argument.</span>
+<span class="why"> <span class="why-label">Why:</span> an explicit <code>-p</code> flag, never a <code>PORT</code> variable: whether a framework picks <code>PORT</code> up from an env file depends on load order, and a silent fallback to 3000 collides with the main tree, the exact failure this exists to prevent.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>integrations/pg-boss/agent-slots.ts</code>.</span>
+<span>Three functions. <code>pgBossOptions</code> returns <code>{ connectionString, schema: PGBOSS_SCHEMA || 'pgboss' }</code>. <code>isScheduleOwner</code> is <code>(AGENT_SLOT ?? '0') === '0'</code>. <code>registerSchedulesForOwner</code> runs the callback only for the owner and returns whether it ran.</span>
+<span class="why"> <span class="why-label">Why:</span> unset means owner means today's behaviour, so production, CI and the main tree change nothing. One variable, read directly: a second inversely-named variable was tried and would have disabled schedules on slot 0 only. See <code>docs/queue-isolation.md</code>, "the inverted-polarity trap".</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-status.sh</code>.</span>
+<span>Walks <code>git worktree list --porcelain</code>, and for each worktree prints branch, tier, slot, both ports (LISTENING or free), whether the database exists, dependency staleness, handover staleness in commits, and any orphan finding. Then slot resources with no worktree, then the simulator lock, then the next free slot.</span>
+<span class="why"> <span class="why-label">Why:</span> it stores nothing, so it cannot go stale. The worktree loop runs in a pipeline, so it deliberately keeps no running counter: a counter incremented in a subshell reads back as 0.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-stop.sh</code>, <code>kill_port</code>.</span>
+<span>Refuses slot 0, refuses a slot no worktree claims. For each port: <code>lsof -t</code> for PIDs, <code>kill</code>, sleep 2, check, <code>kill -9</code>, sleep 2, check, warn if still held. Then releases the simulator lock if this slot holds it.</span>
+<span class="why"> <span class="why-label">Why:</span> kill by listener, not by <code>$!</code> or a command-line pattern: the dev server is a grandchild whose argv matches neither. Waiting for the port to clear matters because a lingering process holds database connections and the next <code>dropdb</code> fails with an error that looks unrelated.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-down.sh</code>.</span>
+<span>Stop, then <code>git worktree remove</code> (plain, so Git's own dirty-tree refusal is the safety property; <code>--force</code> passes through), then <code>dropdb</code>, then <code>worktree prune</code>. A failed <code>dropdb</code> exits 1 after pruning, and says <code>agent-status</code> will show the database as an orphan until the connection closes.</span>
+<span class="why"> <span class="why-label">Why:</span> automated cleanup that can eat uncommitted work is worse than the orphans it prevents. The refusal fires on a freshly provisioned tree too, because the handover template is untracked by design; that is lesson 9 in the lessons file, and the fix is to commit the handover, not to weaken the check.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>agent-reap.sh</code>, four orphan classes.</span>
+<span>(1) a worktree whose branch is fully merged; (2) a slot database with no worktree; (3) a listening slot port with no worktree; (4) a simulator lock whose holder is dead. Dry-run by default; <code>--yes</code> executes; every refusal and every failure is printed and counted; exit 1 if anything failed.</span>
+<span class="why"> <span class="why-label">Why:</span> class 1 has two traps. <code>git branch --merged main</code> lists a branch freshly cut from main (zero commits) as merged, so the reaper requires the branch's own reflog to show at least 2 entries (creation plus one commit) before it believes work happened; and a merged branch re-provisioned onto a new worktree passes that check, so it also refuses when the worktree's <code>.git</code> pointer file is newer than the branch tip. Class 3 is never killed: the process is not provably ours.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>sim-lock.sh</code>, <code>acquire</code>.</span>
+<span>Write a full claim (slot, pid, empty UDID, timestamp) to a temp file, then <code>ln</code> it into place: atomic, and only one of any number of concurrent callers wins. On losing: if the holder is alive, refuse and name it; if dead, <code>mv</code> the stale lock aside (again only one caller can win), print that it was broken, retry, up to 20 attempts. Then pick a device (already booted, else <code>AGENT_SIM_DEVICE</code> by name, else the first iPhone), boot it, and atomically fill in the UDID.</span>
+<span class="why"> <span class="why-label">Why:</span> the recorded PID is <code>AGENT_SIM_PID</code> or the invoking shell's <code>$PPID</code>, never <code>$$</code>: the script exits immediately, so its own pid would make every lock stale the instant it was written. Liveness is the pid and, once filled, the device still reporting booted, so a crashed owner cannot strand a simulator and a shut-down device cannot leave a false live lock.</span>
+</div>
+<div class="code-note">
+<span class="code-note-head"><code>scripts/queue-isolation-check.mjs</code>.</span>
+<span>Two pg-boss clients, schemas A and B, by default the same database URL. Enqueue in A; B fetches 0 (ISOLATION PASS); A fetches exactly that job id (CONTROL PASS).</span>
+<span class="why"> <span class="why-label">Why:</span> the same-database run is the load-bearing one because only the schema varies. The control half exists because "B saw nothing" is also what a broken queue looks like.</span>
+</div>
+    </section>
+
+    <section id="numbers">
+      <h2>The numbers</h2>
+<p>Every constant you might be asked to defend, with where it comes from. Defaults are overridable in <code>.agent-slots.conf</code> unless the source column says otherwise.</p>
+<div class="table-scroll">
+<table>
+<caption>Scroll horizontally on narrow screens.</caption>
+<thead><tr><th>Number</th><th>What it is</th><th>Why that value</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>---</td><td>---</td><td>---</td><td>---</td></tr>
+<tr><td><code>3000 + 100·N</code></td><td>Web port for slot N</td><td>Most web frameworks default to 3000; a step of 100 leaves room for a project's other ports between slots.</td><td><code>AGENT_WEB_PORT_BASE</code>, <code>AGENT_PORT_STEP</code></td></tr>
+<tr><td><code>8081 + 100·N</code></td><td>Bundler port for slot N</td><td>8081 is the Metro (React Native) default; same step so the two series never cross.</td><td><code>AGENT_METRO_PORT_BASE</code></td></tr>
+<tr><td>9</td><td>Default highest slot</td><td>Nine parallel stacks is already more RAM than a laptop has; the ceiling is 99.</td><td><code>AGENT_SLOT_MAX</code></td></tr>
+<tr><td>99</td><td>Hard cap on <code>AGENT_SLOT_MAX</code></td><td>Two digits keeps the bash 3.2 integer checks simple and any port formula sane.</td><td><code>agent_config_validate</code></td></tr>
+<tr><td>65535</td><td>Port ceiling, checked at the top slot</td><td>TCP. The validator computes both ports at <code>AGENT_SLOT_MAX</code> and refuses if either exceeds it.</td><td><code>agent_config_validate</code></td></tr>
+<tr><td>63 bytes</td><td>Database name limit</td><td>PostgreSQL's identifier limit; checked for every slot's derived name.</td><td><code>agent_config_validate</code></td></tr>
+<tr><td>50 bytes</td><td>Queue schema name limit</td><td>pg-boss's own schema-name constraint.</td><td><code>agent_config_validate</code></td></tr>
+<tr><td>0</td><td>The schedule owner</td><td>Unset <code>AGENT_SLOT</code> reads as 0, so production and the main tree are byte-identical to before.</td><td><code>isScheduleOwner</code></td></tr>
+<tr><td>2 s, 2 s</td><td>Waits after TERM and after KILL</td><td>Long enough for a dev server to close its database connections; short enough not to feel stuck. Not configurable.</td><td><code>agent-stop.sh kill_port</code></td></tr>
+<tr><td>20</td><td>Attempts to claim the simulator lock</td><td>Each loop is an <code>ln</code> plus, on a stale lock, an <code>mv</code>; twenty losses in a row means something is genuinely stuck.</td><td><code>sim-lock.sh acquire</code></td></tr>
+<tr><td>&gt;= 2</td><td>Reflog entries before a branch "has work"</td><td>Creation writes exactly one; each commit appends one. Merging never touches the branch's own reflog.</td><td><code>agent_branch_has_own_commits</code></td></tr>
+<tr><td>~90 days</td><td>Reflog expiry</td><td>Git's default gc; after it the reaper cannot prove work happened and refuses rather than destroys.</td><td>git, documented in the library</td></tr>
+<tr><td>1.1 s</td><td>Measured <code>pg_dump | psql</code> clone</td><td>On the source project's dev database. Why cloning per slot is affordable.</td><td>design.md §2</td></tr>
+<tr><td>&lt; 20 s</td><td>Measured <code>node_modules</code> clone</td><td>APFS <code>cp -Rc</code> is inode creation, not data copy, for tens of thousands of files.</td><td>design.md §4.3</td></tr>
+<tr><td>~600 MB</td><td>RAM per booted slot</td><td>Measured on the source project across a couple dozen processes. Why "stop when you pause" matters.</td><td>design.md §4.6</td></tr>
+<tr><td>10</td><td>Schedule rows on the main database during acceptance</td><td>Unchanged mid-run and at teardown, proving slots 1 and 2 never wrote a schedule.</td><td>acceptance.md</td></tr>
+<tr><td>60</td><td>Tests in <code>npm run check</code></td><td>Six Vitest files: derivation, configuration, preflight, integration in a temp repo, pg-boss ownership, release readiness. No developer database or simulator is touched.</td><td><code>tests/</code></td></tr>
+<tr><td>3.2.57</td><td>Bash version everything is verified on</td><td>The bash macOS ships. No associative arrays, no <code>mapfile</code>, BSD sed/stat.</td><td>README, lessons.md</td></tr>
+</tbody></table></div>
+<p>Not a number, but asked every time: why is the worktree a sibling and never nested? Because a nested worktree's files would be untracked content inside the parent, making the parent dirty forever and every removal refuse. <code>agent_worktree_path</code> always builds <code>dirname(main)/&lt;prefix&gt;&lt;branch-slug&gt;</code>.</p>
+    </section>
+
+    <section id="how-to-read">
+      <h2>How to read agent-status</h2>
+<p>Each worktree block is derived at the moment you ran the command. Lines and what they mean:</p>
+<pre><code>/Users/you/proj-search
+  branch feat/search, tier stack, slot 1
+  web   3100 LISTENING          a process holds the port right now
+  metro 8181 free
+  db    proj_a1 exists
+  dependencies MAY BE STALE      lockfile newer than node_modules marker
+  handover docs/plans/search-handover.md is 14 commits behind
+  ORPHAN: branch feat/search is fully merged into main. agent-down.sh it.
+</code></pre>
+<p><code>tier</code> is main, stack, or code. Code tier has no slot line at all.</p>
+<p><code>MAY BE STALE</code> is an mtime heuristic that over-reports on purpose; the remedy (<code>npm install</code>) is idempotent. It never says "is stale".</p>
+<p><code>N commits behind</code> is the count from the last commit touching the handover to the branch tip. It is a derived fact about an intent document, which is the only kind of fact the system can know about intent.</p>
+<p><code>ORPHAN</code> lines come in three flavours for a merged branch: plain "fully merged" (safe to down), "reflog shows no commits of its own" (freshly cut, or expired reflog; the reaper will refuse), and "provisioned onto it after its last commit" (a re-provisioned merged branch; the reaper will refuse).</p>
+<p><code>slot resources with no worktree</code> lists databases and listening ports whose slot nothing claims. <code>agent-reap.sh</code> drops the databases and only names the ports.</p>
+<p><code>next free slot</code> is the lowest N with no database and neither port listening.</p>
+    </section>
+
+    <section id="interview">
+      <h2>Interview answers</h2>
+<div class="qa">
+<span class="q">Why not just give each agent its own database and be done?</span>
+<p>Because the incident was a queue problem, not a data problem. Two servers can have separate databases and still share a queue if the queue lives in a third place, or share the schedule if the clone carried the schedule rows across. Isolation has five surfaces (files, database, ports, queue, exclusive devices) and the design names all five so none is assumed.</p>
+</div>
+<div class="qa">
+<span class="q">Why is slot 0 the only schedule owner instead of, say, the newest slot?</span>
+<p>Because unset must mean today's behaviour. Production and CI have no <code>AGENT_SLOT</code>; reading unset as 0 and 0 as owner means the guard is invisible everywhere it was not deliberately configured. Any other rule needs configuration to be correct, and configuration that must be present to be safe is a foot-gun.</p>
+</div>
+<div class="qa">
+<span class="q">Why clone dependencies instead of symlinking <code>node_modules</code>?</span>
+<p>A symlink reintroduces the exact failure: a package install in one worktree writes through to the shared tree and the package manager reconciles against whichever lockfile is installing, so it can remove packages another worktree still needs. On APFS the clone is cheap (inode creation), and the one remaining risk, a stale snapshot after a rebase, is detectable and reported.</p>
+</div>
+<div class="qa">
+<span class="q">What stops two agents claiming the same slot at once?</span>
+<p>Nothing absolute, and the design says so. The slot is chosen by asking reality (no database, no listening port), and the first agent to <code>createdb</code> wins; the second's preflight then sees the database and refuses. The simulator lock is the one place a true atomic claim was needed, and it uses <code>ln</code> for that.</p>
+</div>
+<div class="qa">
+<span class="q">Why does the reaper refuse so much?</span>
+<p>Because it mirrors <code>git branch -d</code>: it destroys only what it can prove is done. "Merged" is not proof, since a fresh branch is merged by definition; a reflog with real commits is proof, unless the worktree was re-provisioned after the last commit. Each refusal is printed with the exact by-hand command, so a stuck slot is visible rather than silently skipped.</p>
+</div>
+<div class="qa">
+<span class="q">What does this not protect?</span>
+<p>A shared or production backend an agent points a local server at; API quotas, which are global; two agents both working slot 0; and any step a manually launched session never read. It rewards correct use; it does not enforce it.</p>
+</div>
+<div class="qa">
+<span class="q">How do you know it works?</span>
+<p>Three layers. Sixty tests run in CI against temporary Git repositories and mocked simulator output. A live positive-control probe proved that a job enqueued in schema A is invisible to schema B in the same database, and that A can still fetch it. And the original acceptance run in <code>docs/acceptance.md</code> provisioned two slots, booted both, proved the databases distinct, the schedules empty, the main schedule table untouched, and tore everything down to baseline.</p>
+</div>
+    </section>
+
+    <section id="check-yourself">
+      <h2>Check yourself</h2>
+      <p>If you can answer these without opening the code, you can own this.</p>
+<details><summary>1. A linked worktree's env says <code>AGENT_SLOT=0</code>. Does it get slot 0's ports and database?</summary>
+<p>No. Tier is keyed on the presence of the key, so agent-status prints tier stack; slot is keyed on the value, and <code>agent_slot_of_worktree</code> rejects 0 for anything but the main root, so no slot line follows and agent-dev exits before starting a server. Slot 0 is identified by path, never by env, because it is the only schedule owner.</p>
+</details>
+<details><summary>2. <code>agent-up --stack</code> fails while cloning the database. What is left on disk?</summary>
+<p>Nothing new. <code>CREATED_DB=1</code> is set right after <code>createdb</code>, so the rollback drops it; the env file is restored from its temp backup or removed; the worktree and branch are removed only if this run created them. On an upgrade of an existing code-tier worktree, the worktree survives, as intended.</p>
+</details>
+<details><summary>3. Slot 2's server is running. <code>agent-reap --yes</code> finds its branch merged with real commits. What happens?</summary>
+<p>Refused: "has a live web or Metro port. agent-stop.sh 2 it first." A listening port means someone is using it, whatever the reflog says.</p>
+</details>
+<details><summary>4. Two shells run <code>sim-lock acquire</code> in the same second. Who wins, and what does the loser see?</summary>
+<p>Whoever's <code>ln</code> lands first. The loser's <code>ln</code> fails, it checks <code>holder_alive</code>, finds the winner's pid alive (UDID may still be empty, the pid alone protects the claim), and prints REFUSED naming the slot, pid and age.</p>
+</details>
+<details><summary>5. The main <code>.env</code> has <code>DATABASE_URL="postgresql://u:p@localhost:5432/app_dev?sslmode=disable"</code>. What does <code>--stack</code> do?</summary>
+<p>Rolls back and fails: "carries query parameters; rewrite it by hand." The rewrite replaces only the text after the last <code>/</code>, which would produce <code>app_a1?sslmode=disable</code> as a database name; refusing is safer than guessing.</p>
+</details>
+<details><summary>6. Why does a freshly provisioned worktree fail <code>agent-down</code> without <code>--force</code>?</summary>
+<p>The handover template is untracked on purpose (it is meant to be committed with the first real work), so the tree is dirty from birth and <code>git worktree remove</code> refuses. Commit the handover or pass <code>--force</code>. Do not teach agent-down to ignore it.</p>
+</details>
+<details><summary>7. A project has no job queue. What do you set?</summary>
+<p><code>AGENT_QUEUE_SCHEMA_KEY=</code> and <code>AGENT_INHERITED_QUEUE_SCHEMA=</code> (empty). Then no schema key is written to the slot env, no <code>DROP SCHEMA</code> runs, and the validator skips schema-name checks.</p>
+</details>
+<details><summary>8. agent-status says "handover is 14 commits behind". Is the handover wrong?</summary>
+<p>Unknown, and that is the point. The number is derived (last commit touching the file versus branch tip); whether the content is stale is intent, which only a person can judge. The status command's job is to make the question impossible to forget.</p>
+</details>
+    </section>
+
+  </article>
+</div>
+
+<footer>
+  agent-slots · docs/learning/how-it-works.md is canonical; this page is a rendering of it.
+</footer>
+
+</div>
+</body>
+</html>
