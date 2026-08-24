@@ -178,6 +178,8 @@ Historical live acceptance evidence from the source project remains in
   through `eval`.
 
 See the complete [design rationale](docs/design.md) and [debugging lessons](docs/lessons.md).
+For whoever owns this next: [docs/how-it-works.html](docs/how-it-works.html) is the tour that lets you
+defend every number without opening the code; `docs/design.md` is the contract.
 
 Contributions should follow [CONTRIBUTING.md](CONTRIBUTING.md). Security issues and the trust model
 for project configuration are documented in [SECURITY.md](SECURITY.md). Release changes are in
