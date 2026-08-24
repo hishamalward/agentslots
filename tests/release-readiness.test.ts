@@ -41,4 +41,12 @@ describe('release surface', () => {
       .join('\n');
     expect(core).not.toMatch(/music_analytics|apps\/web|apps\/mobile|npx next|npx expo|npx prisma|SPOTIFY|GOOGLE/);
   });
+
+  it('keeps source-project names out of documentation', () => {
+    const docs = filesBelow(REPO)
+      .filter((file) => file.endsWith('.md'))
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n');
+    expect(docs).not.toMatch(/music_analytics|ma-accept|play-history|poll-history|poll-trigger|SPOTIFY/);
+  });
 });

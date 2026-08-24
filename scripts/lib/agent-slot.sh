@@ -375,6 +375,7 @@ elif [ ! -f "$_agent_config_path" ]; then
   echo "agent-slots: AGENT_CONFIG does not exist: $_agent_config_path" >&2
   return 1 2>/dev/null || exit 1
 fi
+# shellcheck disable=SC1090  # the project configuration path is resolved at runtime
 [ -z "$_agent_config_path" ] || . "$_agent_config_path"
 
 if [ -z "$AGENT_SIM_LOCK" ]; then

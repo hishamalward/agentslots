@@ -16,5 +16,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - run: brew install shellcheck
       - run: npm ci
       - run: npm run check

@@ -133,6 +133,32 @@ uncommitted, with nothing automatically noticing. Check `git worktree list` and 
 server's own list of databases after any interrupted run; do not assume a clean state just because
 nothing reported an error.
 
+## A freshly provisioned worktree is dirty by design, so teardown refuses it
+
+`agent-up.sh` writes the handover template into the new worktree as an untracked file on purpose:
+it is meant to be committed by whoever does the first real work there. The consequence is that a
+worktree is dirty from the instant it exists, and `agent-down.sh` correctly refuses a dirty
+worktree until `--force` is given. Provision followed immediately by teardown, the exact shape of a
+demo, a fixture, or an automated cleanup, therefore fails on the first try, and it fails with a
+message that reads like a mistake ("uncommitted changes") when nothing was edited. Discovered
+while recording the demo for this repository, by a teardown script that stopped on the refusal and
+left worktree registrations and slot databases behind for the next step to trip over. Commit the
+handover before tearing down, or pass `--force` and mean it; do not weaken the refusal, because it
+is the same one that protects real work.
+
+## A non-interactive shell reports background jobs the subshell trick does not hide
+
+Starting a server with `( cmd & )` so the calling shell never owns the job is a familiar idiom,
+and under an interactive shell it works. Under a shell reading commands from a pipe, which is what
+a terminal recorder, a CI runner, or a script-driving-a-script gives you, the job is still noticed:
+when `agent-stop.sh` later kills the listener, the outer bash prints `bash: line 4: 1234
+Terminated` into the middle of whatever output comes next. `( cmd & disown )` inside the subshell
+does not help either, because the disown runs in the subshell's job table, not the outer shell's.
+What worked, verified under bash 3.2 fed from a pipe, is to background the subshell itself and
+disown at the top level: `( cd "$wt" && scripts/agent-dev.sh ) >/dev/null 2>&1 & disown`. The
+distinction only shows up when the shell is non-interactive, which is precisely when nobody is
+watching the output for a stray line.
+
 ## General framing
 
 Every one of the above was found by a review pass or a live failure, not by reading a plan or a

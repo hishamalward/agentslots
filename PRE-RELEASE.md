@@ -7,7 +7,7 @@ The original pre-release gaps are closed in the current tree:
 - Next.js, Expo, Prisma, npm-workspaces, and OAuth behavior live in optional project hooks rather
   than executable core logic.
 - The Vitest suite runs from this repository through `npm test` and resolves local paths.
-- CI runs Bash syntax validation, TypeScript checking, and all tests on macOS.
+- CI runs Bash syntax validation, ShellCheck, TypeScript checking, and all tests on macOS.
 - The pg-boss application integration is shipped as importable code and has a live positive-control
   probe.
 - Required external commands are checked before their absence can be mistaken for a free resource.

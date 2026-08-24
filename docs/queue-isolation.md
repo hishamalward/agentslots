@@ -4,7 +4,8 @@ This is the piece of the design with the least prior art and the most transferab
 make a shared, Postgres-backed job queue safe for several agents to run against concurrently,
 without duplicating the whole database. The reusable implementation now ships in
 `integrations/pg-boss/agent-slots.ts`; its constructor options and schedule-owner wrapper are
-covered by the normal test suite. The original source-project change looked like this:
+covered by the normal test suite. The application-side change looks like this; queue and handler
+names are illustrative:
 
 ```diff
  export function getBoss(): PgBoss {
@@ -20,8 +21,8 @@ covered by the normal test suite. The original source-project change looked like
    }
    return _boss;
 @@
-     await boss.work('anon-janitor', anonJanitorHandler);
-     await boss.work('poll-coverage-janitor', pollCoverageJanitorHandler);
+     await boss.work('cleanup', cleanupHandler);
+     await boss.work('report', reportHandler);
 
 +    // Only slot 0 owns the cron schedules (spec 4.4.2). Unset means '0' means owner, so prod,
 +    // CI and the main tree are unchanged. A non-owner slot still creates queues and works jobs
@@ -29,9 +30,8 @@ covered by the normal test suite. The original source-project change looked like
 +    // inherited pgboss schema dropped at provision time.
 +    if ((process.env.AGENT_SLOT ?? '0') !== '0') return boss;
 +
-     // A1: 30-min floor for idle users; the mobile foreground trigger tightens it further
-     // for active users (apps/mobile/lib/poll-trigger.ts -> POST /api/export/poll-history).
-     await boss.schedule('poll-all-play-history', '*/30 * * * *');
+     // Recurring work registered at startup. Only the schedule owner reaches this line.
+     await boss.schedule('refresh-all', '*/30 * * * *');
 ```
 
 ## The two halves

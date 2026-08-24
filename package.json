@@ -4,6 +4,14 @@
   "private": true,
   "description": "Runtime isolation for concurrent coding-agent worktrees",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hishamalward/agent-slots.git"
+  },
+  "homepage": "https://github.com/hishamalward/agent-slots#readme",
+  "bugs": {
+    "url": "https://github.com/hishamalward/agent-slots/issues"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
@@ -11,7 +19,7 @@
     "test": "vitest run",
     "test:queue": "node scripts/queue-isolation-check.mjs",
     "typecheck": "tsc --noEmit",
-    "check:shell": "bash -n scripts/*.sh scripts/lib/*.sh",
+    "check:shell": "bash -n scripts/*.sh scripts/lib/*.sh && shellcheck -s bash -S warning scripts/*.sh scripts/lib/*.sh",
     "check": "npm run check:shell && npm run typecheck && npm test"
   },
   "devDependencies": {

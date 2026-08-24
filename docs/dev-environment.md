@@ -1,7 +1,7 @@
 # Development environment
 
-This repository's own validation requires macOS, the system Bash 3.2, Node.js 22.12 or newer, and
-npm. Run:
+This repository's own validation requires macOS, the system Bash 3.2, Node.js 22.12 or newer, npm,
+and ShellCheck (`brew install shellcheck`). Run:
 
 ```bash
 npm ci

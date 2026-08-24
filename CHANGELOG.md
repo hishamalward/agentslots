@@ -11,3 +11,7 @@ All notable changes are documented here.
 - Armed worktree rollback before creation and added disposable-repository integration tests.
 - Added prerequisite and destructive-target safety checks.
 - Added a runnable TypeScript/Vitest harness and macOS CI.
+- Added ShellCheck to `npm run check` and repository metadata to `package.json`.
+  ShellCheck is a Homebrew prerequisite, not an npm dependency.
+- Replaced source-project names in the acceptance and queue-isolation documents with the example
+  configuration's names.
