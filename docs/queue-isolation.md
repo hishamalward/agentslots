@@ -2,9 +2,9 @@
 
 This is the piece of the design with the least prior art and the most transferable value: how to
 make a shared, Postgres-backed job queue safe for several agents to run against concurrently,
-without duplicating the whole database. The production-code change in the source project was 13
-lines, in one file (`lib/jobs/boss.ts` in that project, using the `pg-boss` library). Reproduced
-here exactly as it shipped:
+without duplicating the whole database. The reusable implementation now ships in
+`integrations/pg-boss/agent-slots.ts`; its constructor options and schedule-owner wrapper are
+covered by the normal test suite. The original source-project change looked like this:
 
 ```diff
  export function getBoss(): PgBoss {
@@ -64,6 +64,25 @@ Together, this means a deployment, a CI run, or the original single-agent local 
 never heard of any of this needs to change nothing: it behaves exactly as it did before this
 change existed, because every new variable it would need to set is unset, and unset means the old
 behavior.
+
+## Executable isolation probe
+
+Install this repository's dependencies, point two pg-boss clients at different schemas, and run:
+
+```bash
+DATABASE_URL_A='postgresql://localhost/project_dev' \
+PGBOSS_SCHEMA_A=pgboss_probe_a \
+PGBOSS_SCHEMA_B=pgboss_probe_b \
+npm run test:queue
+```
+
+`DATABASE_URL_B` defaults to `DATABASE_URL_A`. That same-database run is the load-bearing one: the
+probe enqueues in A, proves B fetches zero jobs, then proves A fetches exactly that job. A second
+run may set `DATABASE_URL_B` to a different disposable database, but database separation alone
+does not prove the schema option works.
+
+Use disposable schema names. pg-boss initializes them, and its normal `stop()` does not remove
+them; drop the probe schemas after the check if the database is long-lived.
 
 ## The inverted-polarity trap
 

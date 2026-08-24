@@ -9,9 +9,16 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git lsof psql
+agent_postgres_reachable || { echo "agent-status: PostgreSQL is unreachable for role $AGENT_PG_USER" >&2; exit 1; }
 
 SIM_LOCK="$AGENT_SIM_LOCK"
 MAIN=$(agent_main_root)
+MAIN_BRANCH=$(agent_main_branch)
+git -C "$MAIN" show-ref --verify --quiet "refs/heads/$MAIN_BRANCH" \
+  || { echo "agent-status: configured main branch does not exist: $MAIN_BRANCH" >&2; exit 1; }
+[ ! -f "$SIM_LOCK" ] || agent_require_commands xcrun
 
 # Deliberately no running total: the worktree loop below runs inside a pipeline, so any counter
 # incremented in it lives in a subshell and reads back as 0. Each orphan prints itself, which is
@@ -61,8 +68,8 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while 
   # node_modules cloned at provision time is a snapshot, so a rebase onto a main that changed
   # dependencies leaves it behind the lockfile. The symptom is an import or version error that
   # looks like a code bug, so it is worth naming before the tests run (spec 4.3).
-  if agent_node_modules_stale "$wt"; then
-    printf '    node_modules MAY BE STALE relative to package-lock.json, run npm install\n'
+  if agent_dependencies_stale "$wt"; then
+    printf '    dependencies MAY BE STALE; run the project dependency-install command\n'
   fi
 
   # The handover is committed, so the distance from the last commit touching it to the branch
@@ -99,16 +106,16 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while 
   # one commit beyond the branch's creation entry, which a merge into main never touches. And
   # `main` itself is excluded: it is only ever meant to be checked out in the main tree, but
   # nothing enforces that, so a linked worktree sitting on `main` must not be called an orphan.
-  if [ "$wt" != "$MAIN" ] && [ "$branch" != '(detached)' ] && [ "$branch" != 'main' ]; then
-    if git -C "$MAIN" branch --merged main --format='%(refname:short)' | grep -Fqx "$branch"; then
+  if [ "$wt" != "$MAIN" ] && [ "$branch" != '(detached)' ] && [ "$branch" != "$MAIN_BRANCH" ]; then
+    if git -C "$MAIN" branch --merged "$MAIN_BRANCH" --format='%(refname:short)' | grep -Fqx "$branch"; then
       if agent_branch_has_own_commits "$MAIN" "$branch"; then
         if agent_worktree_provisioned_after_tip "$wt" "$MAIN" "$branch"; then
-          note "branch $branch is merged into main, and this worktree was provisioned onto it after its last commit (a merged branch re-provisioned onto a new worktree, not work in progress). agent-reap.sh will refuse it too; agent-down.sh it by hand if you are certain."
+          note "branch $branch is merged into $MAIN_BRANCH, and this worktree was provisioned onto it after its last commit (a merged branch re-provisioned onto a new worktree, not work in progress). agent-reap.sh will refuse it too; agent-down.sh it by hand if you are certain."
         else
-          note "branch $branch is fully merged into main. agent-down.sh it."
+          note "branch $branch is fully merged into $MAIN_BRANCH. agent-down.sh it."
         fi
       else
-        note "branch $branch is merged into main, but its reflog shows no commits of its own (freshly cut from main with no work yet, or its reflog has expired). agent-reap.sh will refuse it automatically."
+        note "branch $branch is merged into $MAIN_BRANCH, but its reflog shows no commits of its own (freshly cut from $MAIN_BRANCH with no work yet, or its reflog has expired). agent-reap.sh will refuse it automatically."
       fi
     fi
   fi
@@ -123,8 +130,9 @@ claimed=$(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}
   [ -d "$wt" ] && agent_slot_of_worktree "$wt" || true
 done | tr '\n' ' ')
 found=0
-for n in 1 2 3 4 5 6 7 8 9; do
-  case " $claimed " in *" $n "*) continue ;; esac
+n=1
+while [ "$n" -le "$AGENT_SLOT_MAX" ]; do
+  case " $claimed " in *" $n "*) n=$((n + 1)); continue ;; esac
   db=$(agent_db_name "$n"); web=$(agent_web_port "$n"); metro=$(agent_metro_port "$n")
   if agent_db_exists "$db"; then
     printf '  slot %s: database %s exists with no worktree. dropdb it, or agent-reap.sh.\n' "$n" "$db"
@@ -138,6 +146,7 @@ for n in 1 2 3 4 5 6 7 8 9; do
     printf '  slot %s: Metro port %s is listening with no worktree.\n' "$n" "$metro"
     found=$((found + 1))
   fi
+  n=$((n + 1))
 done
 [ "$found" -gt 0 ] || echo "  none"
 echo ''
@@ -154,11 +163,11 @@ if [ -f "$SIM_LOCK" ]; then
     printf '  held by slot %s, pid %s, device %s, holder ALIVE\n' "$lslot" "$lpid" "$ludid"
   else
     printf '  held by slot %s, pid %s, device %s\n' "$lslot" "$lpid" "$ludid"
-    printf '    ORPHAN: holder process %s is dead. sim-lock.sh acquire will break it.\n' "$lpid"
+    printf '    ORPHAN: holder process or device is no longer alive. sim-lock.sh acquire will break it.\n'
   fi
 else
   echo "  free"
 fi
 echo ''
 
-echo "next free slot: $(agent_next_free_slot 2>/dev/null || echo 'none, all 9 are in use')"
+echo "next free slot: $(agent_next_free_slot 2>/dev/null || echo "none, all $AGENT_SLOT_MAX are in use")"

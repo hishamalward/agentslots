@@ -7,6 +7,8 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git lsof psql dropdb
 
 FORCE=0
 SLOT=""
@@ -14,13 +16,15 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
     -h|--help) echo "usage: agent-down.sh <slot> [--force]" >&2; exit 2 ;;
-    *) SLOT="$1"; shift ;;
+    *) [ -z "$SLOT" ] || { echo "agent-down: unexpected argument: $1" >&2; exit 2; }
+       SLOT="$1"; shift ;;
   esac
 done
 
 [ -n "$SLOT" ] || { echo "usage: agent-down.sh <slot> [--force]" >&2; exit 2; }
-agent_slot_valid "$SLOT" || { echo "agent-down: slot must be a digit 0..9, got '$SLOT'" >&2; exit 2; }
+agent_slot_valid "$SLOT" || { echo "agent-down: slot must be in 0..$AGENT_SLOT_MAX, got '$SLOT'" >&2; exit 2; }
 [ "$SLOT" != "0" ] || { echo "agent-down: refusing to destroy slot 0, the main tree." >&2; exit 1; }
+agent_postgres_reachable || { echo "agent-down: PostgreSQL is unreachable for role $AGENT_PG_USER; nothing was removed" >&2; exit 1; }
 
 MAIN=$(agent_main_root)
 DB=$(agent_db_name "$SLOT")
@@ -30,15 +34,7 @@ DB=$(agent_db_name "$SLOT")
 # `while read` fed by process substitution, not `for x in $(...)`: the latter word-splits, so a
 # worktree path containing a space would be torn into fragments. Process substitution rather than
 # a pipe, so the loop body runs in THIS shell and the assignment to WT survives it.
-WT=""
-while IFS= read -r cand; do
-  [ -d "$cand" ] || continue
-  [ "$cand" != "$MAIN" ] || continue
-  if [ "$(agent_slot_of_worktree "$cand" 2>/dev/null || true)" = "$SLOT" ]; then
-    WT="$cand"
-    break
-  fi
-done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}')
+WT=$(agent_worktree_for_slot "$SLOT" 2>/dev/null || true)
 
 "$HERE/agent-stop.sh" "$SLOT" || true
 

@@ -1,167 +1,155 @@
 # agent-slots
 
-Several AI coding agents can work one repository, on one machine, at the same time, without
-one of them running stale code against another one's job queue.
+Run several coding-agent worktrees on one Mac without sharing their databases, ports, job queues,
+or exclusive simulator state.
 
-## Why
+A Git worktree isolates files only. `agent-slots` adds a small runtime-isolation contract: one
+integer derives a PostgreSQL database, web port, secondary/bundler port, and queue schema. Slot 0
+is the main worktree; stack worktrees receive slots 1 through a configurable maximum.
 
-Two dev servers were running different code against one shared pg-boss (Postgres-backed) job
-queue. The queue handed a scheduled job to whichever server claimed it first, and that server
-happened to be running the stale handler, the one with no due-check. A "press an edition"
-job fired for every user on the wrong day, which emptied the next scheduled composer window.
-The incident was diagnosed at first as "a cron schedule got rewritten." That diagnosis was
-wrong: the schedule was fine. The failure was shared runtime state: one queue, two servers,
-and the queue does not know or care which server's code is current.
+## What it protects
 
-A git branch does not isolate anything at runtime; it is just a pointer. A git worktree isolates
-the filesystem and nothing else. Five things collide when several agents work one project:
-
-| Resource | Does a worktree isolate it? |
+| Resource | Isolation |
 |---|---|
-| Filesystem (working tree, checked-out files) | Yes, this is what a worktree is for |
-| Database | No, every worktree still points at the same one |
-| Ports (web server, bundler) | No, every worktree still tries to bind the same ones |
-| Background job queue and its schedules | No, this is the resource that actually caused the incident |
-| A physical or virtual device (here: the iOS Simulator) | No, and it cannot be duplicated at all |
+| Files | Git worktree per branch |
+| PostgreSQL data | Database per stack slot |
+| Web and bundler processes | Deterministic ports per slot |
+| Namespaced job queues | Schema per slot |
+| Recurring schedules | Slot 0 is the only owner |
+| iOS Simulator or another exclusive device | Atomic, owner-and-device-verified lock |
 
-Fixing the filesystem and calling the job done is what left the other four exposed. This repo
-is the fix for all five: one integer, `AGENT_SLOT`, deterministically derives a worktree, a
-database, two ports and a job-queue schema. Slot 0 is the original checkout, unchanged, and the
-only slot allowed to own the queue's cron schedules. Every other slot gets its own of everything
-and starts with an empty schedule table, so it cannot fire a cron job even by accident.
+The scripts are intended for local development. They do not alter production infrastructure.
 
-## Status
+## Requirements
 
-This runs, as shipped, in the single repository it was built for (a Next.js/Prisma/pg-boss
-monorepo with an Expo mobile app). It is not yet parameterized for other projects: the database
-naming scheme, the base ports, the worktree-naming prefix and a chunk of hardcoded `apps/web`
-path segments are specific to that repo. `PRE-RELEASE.md` lists exactly what generalizing this
-takes, with file and line references. Read that before adopting this anywhere else. The two
-vitest test files under `tests/` do not run as-is here either (no `package.json`, no vitest, and
-they resolve paths relative to the source monorepo); they are included as the reference test
-suite, and wiring up a harness is also a `PRE-RELEASE.md` item.
+- macOS with the system Bash 3.2 and BSD userland
+- Git with worktree support
+- `lsof`
+- PostgreSQL client tools for stack slots: `psql`, `createdb`, `dropdb`, and `pg_dump`
+- Xcode command-line tools and `jq` only when using the simulator lock
+- Node.js 22.12 or newer only for this repository's tests and optional live pg-boss probe
 
-None of this touches production. It is a local-development-only concern.
+Every executable checks the tools needed by its own mode before trusting their output.
 
-## Install / Setup
+## Install
 
-Requirements:
+Copy `scripts/` and `integrations/` into the target project. Then:
 
-- macOS with the system bash (3.2). The scripts are written and verified against bash 3.2.57,
-  not bash 5, and several of them depend on quirks of that specific version (see
-  `docs/lessons.md`).
-- BSD userland. `sed`, `stat` and friends are used in their BSD forms throughout; the GNU
-  equivalents accept different flags and some of them fail outright on the syntax used here.
-- Local PostgreSQL (a Homebrew service in the source project, but any locally reachable Postgres
-  works once the connection details are configured).
-- git with worktree support (any reasonably current git).
+1. Copy `.agent-slots.conf.example` to `.agent-slots.conf`.
+2. Replace the example database names and project paths.
+3. Adapt the setup and server hook functions to the project's frameworks.
+4. Commit `.agent-slots.conf`; it should contain no credentials.
+5. Add `.agent` to the target project's `.gitignore`.
+6. Apply the queue integration when the project runs scheduled background work.
 
-Copy `scripts/` into your project, keeping `scripts/lib/agent-slot.sh` at that path (every other
-script sources it by relative path). See `QUICKSTART.md` for the commands that were actually run
-to exercise this, and `PRE-RELEASE.md` for what needs to change before the scripts will target a
-different project.
+The scripts refuse to provision when `.agent` is not ignored, the configured main branch does not
+exist, required tools are absent, or configuration could escape the repository. See
+[configuration](docs/configuration.md) and the [quickstart](QUICKSTART.md).
 
 ## Use
 
-All nine scripts derive their values from `scripts/lib/agent-slot.sh`, the single shared
-contract. Nothing here is scripted state; `agent-status.sh` asks the running system (`git
-worktree list`, `lsof`, `psql`) every time it runs, so it cannot go stale the way a written
-registry file would.
+Create a cheap code-only worktree:
 
-### The slot model
-
-```
-AGENT_SLOT=0   the main tree, the default, unchanged
-AGENT_SLOT=N   a booted stack, N in 1..9
+```bash
+./scripts/agent-up.sh feat/my-change
 ```
 
-| Resource | Formula | Slot 0 | Slot 1 | Slot 2 |
-|---|---|---|---|---|
-| Database | `<name>_a<N>` | `<name>_dev` | `..._a1` | `..._a2` |
-| Web port | `3000 + 100N` | 3000 | 3100 | 3200 |
-| Bundler port | `8081 + 100N` | 8081 | 8181 | 8281 |
-| Job-queue schema | `pgboss_a<N>` | `pgboss` | `pgboss_a1` | `pgboss_a2` |
-| Schedule owner | `N == 0` | yes | no | no |
+This creates a sibling worktree, runs the configured setup hook, writes an ignored `.agent`
+marker, and creates a commit-ready handover template when one does not already exist. It claims no
+database or ports.
 
-Unset means slot 0, which is byte-identical to today's single-agent behavior. Only slot 0 may
-write cron schedules; every other slot's job-queue schema starts empty, so a non-owner agent
-cannot fire a scheduled job even if its code is stale. This is the direct fix for the incident
-above: see `docs/queue-isolation.md` for the actual 13-line change and why it works.
+Upgrade that worktree to a complete stack when needed:
 
-### Two tiers
+```bash
+./scripts/agent-up.sh feat/my-change --stack
+```
 
-A worktree is cheap (roughly 20 seconds in the source project: `git worktree add` plus cloning
-`node_modules` plus a codegen step) and everyone gets one. A database and two ports are scarce
-and cost real setup time (a database clone in the source project), so they are claimed only by
-work that actually needs to boot a server.
+The upgrade chooses the lowest free slot, derives its database and ports, rewrites only the
+configured slot-owned env keys, clones the main development database, and removes the configured
+inherited queue schema before the stack can start.
 
-| Tier | Command | Provisions | Claims a slot? |
-|---|---|---|---|
-| **Code** (default) | `agent-up.sh <branch>` | worktree, dependencies, generated code | No |
-| **Stack** (opt-in) | `agent-up.sh <branch> --stack` | everything above, plus database, ports, env file | Yes |
+From inside the worktree:
 
-A code-tier worktree upgrades in place to stack tier later with the same command plus `--stack`,
-so picking the cheap tier first is never a decision you have to undo. `agent-dev.sh` and
-`agent-mobile.sh` refuse to start a server on a code-tier worktree and print the exact upgrade
-command, rather than booting and then failing on every database-backed route.
+```bash
+./scripts/agent-dev.sh
+./scripts/agent-mobile.sh       # only when a mobile/secondary hook is configured
+```
 
-### Command reference
+Inspect and clean up:
 
-| Script | What it does | Usage |
-|---|---|---|
-| `scripts/agent-up.sh` | Provisions a worktree (code tier), or adds a slot, database, ports and env file to one (`--stack`) | `agent-up.sh <branch> [--stack] [--handover <path>] [--spec <path>]` |
-| `scripts/agent-status.sh` | Prints every worktree, its tier, slot, branch, live ports and orphans, derived from the running system | `agent-status.sh` |
-| `scripts/agent-dev.sh` | Starts the web dev server on this worktree's slot port; refuses on a code-tier worktree | `agent-dev.sh` |
-| `scripts/agent-mobile.sh` | Starts the bundler on this worktree's slot port; refuses on a code-tier worktree | `agent-mobile.sh` |
-| `scripts/agent-stop.sh` | Kills this slot's processes and releases the simulator lock if it holds one; worktree and database survive | `agent-stop.sh <slot>` |
-| `scripts/agent-down.sh` | Ends a slot's life entirely: stop, then remove the worktree, drop the database | `agent-down.sh <slot> [--force]` |
-| `scripts/agent-reap.sh` | Finds and (with `--yes`) destroys orphaned slots: dry-run by default, refuses anything not fully merged or with uncommitted changes | `agent-reap.sh [--yes]` |
-| `scripts/sim-lock.sh` | Exclusive lock for the one resource that cannot be slotted, a device simulator | `sim-lock.sh <acquire\|release\|status> [slot]` |
-| `scripts/lib/agent-slot.sh` | The shared derivation contract every other script sources | sourced, never run directly |
+```bash
+./scripts/agent-status.sh
+./scripts/agent-stop.sh 1       # stop processes; retain worktree and database
+./scripts/agent-down.sh 1       # remove worktree and database
+./scripts/agent-reap.sh         # safe dry-run for orphans
+./scripts/agent-reap.sh --yes   # execute only proven-safe cleanup
+```
 
-## What it looks like
+The reaper refuses live ports, dirty worktrees, unmerged branches, ambiguous reflog history, and
+re-provisioned merged branches. It never kills an unidentified listener.
 
-`agent-status.sh` derives and prints, live, every worktree with its tier, branch, slot, ports and
-whether it is an orphan (a merged branch whose slot is still provisioned, a database with no
-matching worktree, a dead simulator lock, and so on). There is no dashboard or screenshot here:
-the entire point of the design is that this state is never written down, only ever asked for, so
-the only faithful "what it looks like" is the command's own text output on a real run, and that
-output names real branches and paths from the source project. `docs/acceptance.md` has the actual
-runs, evidence and all, verbatim from the source project.
+## Queue isolation
 
-## Design notes
+Database separation is not enough when divergent servers share a queue. The application must also
+construct pg-boss with the slot schema and prevent nonzero slots from registering recurring
+schedules. Import the tested helpers in
+[integrations/pg-boss](integrations/pg-boss/README.md).
 
-- **Derive state, never write it down; write down intent, never derive it.** These are opposite
-  problems. What exists and what is running is asked of the system every time (`git worktree
-  list`, `lsof`, `psql -l`), because a written copy drifts the moment reality moves. What the work
-  is for and what is next cannot be derived from anything, so a per-stream handover document
-  carries that instead. `docs/design.md` has the full reasoning, including the abandoned design
-  that mixed the two.
-- **A lock file is a claim, not an authority.** The simulator lock always re-verifies its holder
-  against the OS (process alive, device still booted) before trusting it, so a crashed agent
-  cannot strand the lock for everyone else.
-- **The exclusive resource is protected by testing beneath it.** The device simulator is the one
-  resource that cannot be slotted, so the design assumes demand for it is a last resort: logic is
-  proved in the headless unit suite, API behavior against a local server, screen logic with
-  component tests (React Native Testing Library and the like), and only pixels, scroll physics
-  and native modules ever claim the lock. The cheaper the lower layers are, the less the one
-  unsharable resource is contended; moving logic into shared packages moves work from the locked
-  layer to the free one.
-- **Absence of configuration preserves today's behavior.** Every environment variable this design
-  introduces defaults to the value that already existed. The feature cannot break the normal path
-  by being unset.
-- **Concurrency prices the protocol, not just the resources.** The tiers make per-stream cost
-  scale with need; the same principle applies to the rules themselves. `agent-status.sh` is the
-  gate: when it shows no other worktrees and no other slots, the protocol collapses to working
-  where you are (with explicit-path commits), plus a fresh status check before anything
-  long-running, since another agent can appear mid-session. A coordination system that charges a
-  solo operator its full ceremony is over-engineering wearing a uniform.
-- **Collisions fail loudly, at setup, or not at all.** A preflight check that refuses and changes
-  nothing beats a half-provisioned worktree that looks ready and behaves wrong three hours later.
-- Full design rationale, including the founder rulings behind each locked-in choice: `docs/design.md`.
-- The debugging cost of getting this wrong, preserved in detail: `docs/lessons.md`.
-- The one piece of production code this required, and why a second, differently-named variable
-  would have silently disabled cron on the one slot that must run it: `docs/queue-isolation.md`.
+Run the live positive-control probe against two schemas before adopting the integration:
+
+```bash
+DATABASE_URL_A='postgresql://localhost/project_dev' \
+PGBOSS_SCHEMA_A=pgboss_probe_a \
+PGBOSS_SCHEMA_B=pgboss_probe_b \
+npm run test:queue
+```
+
+Using the same database URL for both clients is the strongest test because only the schema varies.
+The probe fails unless client B sees zero jobs and client A can fetch its own job. Details are in
+[queue isolation](docs/queue-isolation.md).
+
+## Simulator lock
+
+```bash
+./scripts/sim-lock.sh acquire 1
+./scripts/sim-lock.sh status
+./scripts/sim-lock.sh release 1
+```
+
+Acquisition uses an atomic hard-link claim. During boot, the live owner PID protects the claim;
+afterward both the owner PID and recorded device must remain alive. A crashed owner therefore
+cannot strand a booted simulator, and a stopped device cannot leave a false live lock.
+
+## Verification
+
+```bash
+npm ci
+npm run check
+```
+
+The check runs Bash syntax validation under the macOS system Bash, TypeScript type checking, and
+the complete Vitest suite. Tests use temporary Git repositories and mocked simulator output; they
+do not create development databases, worktrees beside this repository, or boot a device.
+
+The optional database-backed queue probe is deliberately separate as `npm run test:queue`.
+Historical live acceptance evidence from the source project remains in
+[docs/acceptance.md](docs/acceptance.md).
+
+## Design
+
+- State is derived live from Git, listening ports, PostgreSQL, and the simulator—not copied into a
+  registry file that can drift.
+- Intent lives in one tracked handover per stream.
+- Missing slot environment variables preserve slot-0 application behavior.
+- Destructive cleanup defaults to refusal or dry-run.
+- Framework-specific commands are Bash functions in project configuration, never strings sent
+  through `eval`.
+
+See the complete [design rationale](docs/design.md) and [debugging lessons](docs/lessons.md).
+
+Contributions should follow [CONTRIBUTING.md](CONTRIBUTING.md). Security issues and the trust model
+for project configuration are documented in [SECURITY.md](SECURITY.md). Release changes are in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

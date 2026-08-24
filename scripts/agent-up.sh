@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
-# -E (errtrace): without it, bash 3.2's ERR trap is NOT inherited into subshells, command
-# substitutions or functions, so a failure inside the `( cd ... && npx prisma generate )`
-# subshell or the `find | while read` node_modules loop below would abort the script via -e but
-# silently skip the rollback trap. Verified empirically on the exact bash 3.2.57 this targets:
-# without -E the trap never fires for either construct; with it, it fires correctly for both.
+# -E (errtrace): project setup hooks may use functions, command substitutions, or subshells. A
+# failure in any of them must inherit the rollback trap under bash 3.2.
 set -Eeuo pipefail
 
-# Provision a CODE TIER worktree (spec 4.1): worktree, node_modules, generated Prisma client.
+# Provision a CODE TIER worktree (spec 4.1): worktree plus the configured project setup hook.
 # No slot, no database, no ports.
 #
 # The whole economy of the design is that a worktree is cheap and everyone gets one, while ports
@@ -19,16 +16,18 @@ set -Eeuo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git
 
 usage() {
   cat >&2 <<'EOF'
 usage: agent-up.sh <branch> [--stack] [--handover <path>] [--spec <path>]
 
-  <branch>      the branch to work on. Created from main if it does not exist.
-  --stack       also claim a slot: a database, ports and apps/web/.env. Run it on
+  <branch>      the branch to work on. Created from the configured main branch if absent.
+  --stack       also claim a slot: a database, ports and the configured env file. Run it on
                 an existing code-tier worktree to upgrade in place (spec 4.3).
   --handover    record an explicit handover path in .agent. Defaults to the path
-                derived from the stream slug (spec 4.7). Use this for the 21
+                derived from the stream slug (spec 4.7). Use this for existing
                 handovers that predate the naming convention.
   --spec        record a design-spec path in .agent. Optional.
 EOF
@@ -54,10 +53,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$BRANCH" ] || usage
+git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || fail "invalid branch name: $BRANCH"
 
 MAIN=$(agent_main_root)
 WT=$(agent_worktree_path "$BRANCH")
+MAIN_BRANCH=$(agent_main_branch)
+ENV_PATH=$(agent_env_path "$WT")
 [ -n "$HANDOVER" ] || HANDOVER=$(agent_handover_path "$BRANCH")
+agent_relative_path_valid "$HANDOVER" || fail "handover path must stay inside the worktree: $HANDOVER"
+[ -z "$SPEC" ] || agent_relative_path_valid "$SPEC" || fail "spec path must stay inside the worktree: $SPEC"
+
+git -C "$MAIN" show-ref --verify --quiet "refs/heads/$MAIN_BRANCH" \
+  || fail "main branch '$MAIN_BRANCH' does not exist. Set AGENT_MAIN_BRANCH in .agent-slots.conf."
+git -C "$MAIN" check-ignore -q .agent \
+  || fail ".agent is not ignored. Add it to the project's .gitignore before provisioning."
 
 # --- preflight, spec 4.3 ---------------------------------------------------
 
@@ -65,6 +74,10 @@ WT=$(agent_worktree_path "$BRANCH")
 #    Choosing the cheap tier first is never a decision you have to undo (spec 4.3).
 if [ -e "$WT" ]; then
   [ "$STACK" = "1" ] || fail "$WT already exists. Use it, or remove it first."
+  [ "$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null || true)" = "$WT" ] \
+    || fail "$WT exists but is not the expected Git worktree. Refusing to upgrade it."
+  [ "$(git -C "$WT" symbolic-ref -q --short HEAD 2>/dev/null || true)" = "$BRANCH" ] \
+    || fail "$WT is not checked out on $BRANCH. Refusing to upgrade it."
   tier=$(agent_tier_of_worktree "$WT")
   [ "$tier" = "code" ] || fail "$WT already exists and is $tier tier, not code. Nothing to upgrade."
   UPGRADE=1
@@ -84,20 +97,21 @@ if [ "$UPGRADE" = "0" ] && printf '%s\n' "$PORCELAIN" | grep -qx "branch refs/he
   fail "branch $BRANCH is already checked out at $where"
 fi
 
-# 3. no .env.local carrying a DATABASE_URL in the tree we derive from. Prisma's CLI reads .env
-#    and ignores .env.local, so such a file makes `prisma migrate dev` hit a different database
-#    than the running app. That split brain is worse than any bug this design set out to fix,
-#    which is why 4.4.3 deleted the file outright rather than merely not writing one.
-if [ -f "$MAIN/apps/web/.env.local" ] && grep -q '^DATABASE_URL' "$MAIN/apps/web/.env.local"; then
-  fail "$MAIN/apps/web/.env.local sets DATABASE_URL. Remove it (spec 4.4.3) before provisioning."
+# 3. an optional conflicting env file must not carry a second database URL. Projects configure
+#    this when their framework and database tooling load different env-file layers.
+CONFLICT_ENV=$(agent_conflict_env_path "$MAIN" 2>/dev/null || true)
+if [ -n "$CONFLICT_ENV" ] && [ -f "$CONFLICT_ENV" ] && grep -q "^${AGENT_DATABASE_URL_KEY}=" "$CONFLICT_ENV"; then
+  fail "$CONFLICT_ENV sets $AGENT_DATABASE_URL_KEY. Remove it before provisioning."
 fi
 
 # --- stack preflight, spec 4.3 items 3 to 6 --------------------------------
 
 if [ "$STACK" = "1" ]; then
-  # 3. a slot in 1..9 is free. agent_next_free_slot asks reality: no database, no listening
+  agent_require_commands lsof psql createdb dropdb pg_dump
+  agent_postgres_reachable || fail "PostgreSQL is unreachable for role $AGENT_PG_USER."
+  # 3. a slot in the configured range is free. agent_next_free_slot asks reality: no database, no listening
   #    ports. There is no registry file to go stale.
-  SLOT=$(agent_next_free_slot) || fail "no free slot in 1..9. Run agent-status.sh to find orphans."
+  SLOT=$(agent_next_free_slot) || fail "no free slot in 1..$AGENT_SLOT_MAX. Run agent-status.sh to find orphans."
   DB=$(agent_db_name "$SLOT")
   SCHEMA=$(agent_boss_schema "$SLOT")
   WEB_PORT=$(agent_web_port "$SLOT")
@@ -112,13 +126,13 @@ if [ "$STACK" = "1" ]; then
 
   # 6. the template database is reachable
   TEMPLATE=$(agent_db_name 0)
-  agent_db_exists "$TEMPLATE" || fail "template database $TEMPLATE is unreachable. See docs/dev-environment.md."
+  agent_db_exists "$TEMPLATE" || fail "template database $TEMPLATE is unreachable. Check PostgreSQL and .agent-slots.conf."
 
-  SRC_ENV="$MAIN/apps/web/.env"
+  SRC_ENV=$(agent_env_path "$MAIN")
   [ -f "$SRC_ENV" ] || fail "$SRC_ENV does not exist, so there is nothing to derive a slot .env from."
-  grep -q '^DATABASE_URL=' "$SRC_ENV" || fail "$SRC_ENV has no DATABASE_URL to derive from."
+  grep -q "^${AGENT_DATABASE_URL_KEY}=" "$SRC_ENV" || fail "$SRC_ENV has no $AGENT_DATABASE_URL_KEY to derive from."
   # An empty value would make SLOT_URL="${raw%/*}/$DB" silently collapse to "/$DB" further down.
-  [ -n "$(sed -n '/^DATABASE_URL=/{s///p;q;}' "$SRC_ENV")" ] || fail "$SRC_ENV has an empty DATABASE_URL."
+  [ -n "$(sed -n "/^${AGENT_DATABASE_URL_KEY}=/{s///p;q;}" "$SRC_ENV")" ] || fail "$SRC_ENV has an empty $AGENT_DATABASE_URL_KEY."
 fi
 
 # --- provision -------------------------------------------------------------
@@ -133,11 +147,12 @@ fi
 
 # The preflight above is atomic: nothing touches disk until every check passes. Past this point
 # it is not, because `git worktree add` succeeding is itself a disk change, and any later step
-# failing under `set -Eeuo pipefail` (the .agent write, a `cp -Rc` mid-clone on a full disk, an
-# `npx prisma generate` schema error from the branch's own commits) would otherwise leave a
+# failing under `set -Eeuo pipefail` (the .agent write or a project setup-hook error) would
+# otherwise leave a
 # worktree that exists, is checked out, and looks ready but is not: the exact "worse than none"
 # state the preflight exists to prevent, reached from a different direction. The trap rolls that
-# back. CREATED_BRANCH is only 1 on the `-b` path, so a pre-existing branch is never destroyed.
+# back. CREATED_BRANCH becomes 1 only after this process creates the ref, so a pre-existing or
+# concurrently-created branch is never destroyed.
 CREATED_BRANCH=0
 CREATED_WT=0
 CREATED_DB=0
@@ -159,9 +174,9 @@ rollback() {
   # whatever was there before, or remove the file if nothing was.
   if [ "$ENV_WRITTEN" = "1" ]; then
     if [ "$ENV_HAD_PRIOR" = "1" ]; then
-      cp "$ENV_BACKUP" "$WT/apps/web/.env" 2>/dev/null || true
+      cp "$ENV_BACKUP" "$ENV_PATH" 2>/dev/null || true
     else
-      rm -f "$WT/apps/web/.env" 2>/dev/null || true
+      rm -f "$ENV_PATH" 2>/dev/null || true
     fi
   fi
   [ -z "$ENV_BACKUP" ] || rm -f "$ENV_BACKUP" 2>/dev/null || true
@@ -169,17 +184,25 @@ rollback() {
   [ "$CREATED_BRANCH" = "1" ] && git -C "$MAIN" branch -D "$BRANCH" 2>/dev/null || true
 }
 
+# Arm rollback before git worktree add. That command creates the branch and worktree in several
+# filesystem steps and can fail partway (for example on a full disk); cleanup must cover it too.
+trap rollback ERR
+
 if [ "$UPGRADE" = "0" ]; then
+  CREATED_WT=1
   if git -C "$MAIN" show-ref --verify --quiet "refs/heads/$BRANCH"; then
     git -C "$MAIN" worktree add "$WT" "$BRANCH"
   else
-    echo "agent-up: branch $BRANCH does not exist, creating it from main (spec 4.8)"
+    echo "agent-up: branch $BRANCH does not exist, creating it from $MAIN_BRANCH"
+    # Create the ref as its own atomic operation, and mark ownership only after that succeeds.
+    # With `worktree add -b`, a competing agent can create the same branch between preflight and
+    # this command; pre-marking CREATED_BRANCH would then let rollback delete the other agent's
+    # ref even though this process never created it.
+    git -C "$MAIN" branch "$BRANCH" "$MAIN_BRANCH"
     CREATED_BRANCH=1
-    git -C "$MAIN" worktree add -b "$BRANCH" "$WT" main
+    git -C "$MAIN" worktree add "$WT" "$BRANCH"
   fi
-  CREATED_WT=1
 fi
-trap rollback ERR
 
 if [ "$UPGRADE" = "0" ]; then
   # The marker records INTENT: which stream this worktree serves and which handover governs it.
@@ -190,7 +213,7 @@ if [ "$UPGRADE" = "0" ]; then
     echo '# Written by scripts/agent-up.sh.'
     echo '#'
     echo '# Intent only. TIER below is a human-readable echo, rewritten by `agent-up.sh --stack`.'
-    echo '# The authority is apps/web/.env: a worktree whose .env carries AGENT_SLOT is stack tier.'
+    echo "# The authority is $AGENT_APP_DIR/$AGENT_ENV_FILE: a worktree whose env carries $AGENT_SLOT_KEY is stack tier."
     echo '# agent-status.sh derives tier and slot rather than trusting this file (principle 2).'
     echo ''
     echo "STREAM=$(agent_stream_slug "$BRANCH")"
@@ -200,133 +223,141 @@ if [ "$UPGRADE" = "0" ]; then
     [ -z "$SPEC" ] || echo "SPEC=$SPEC"
   } > "$WT/.agent"
 
-  # node_modules is always CLONED, never symlinked (founder ruling, 2026-07-29). A symlink would
-  # let any `npm install` write through to every other worktree, and npm reconciles node_modules
-  # against the installing worktree's lockfile, so it can REMOVE packages another worktree needs.
-  # Seventeen seconds paid once is cheaper than one silent cross-worktree dependency change.
-  echo "agent-up: cloning node_modules (about 17s, APFS clone-on-write, near-zero new blocks)"
-  find "$MAIN" -maxdepth 3 -type d -name node_modules -prune | while read -r src; do
-    rel=${src#"$MAIN"/}
-    dst="$WT/$rel"
-    [ -e "$dst" ] && continue
-    mkdir -p "$(dirname "$dst")"
-    cp -Rc "$src" "$dst"
-  done
+  if [ ! -e "$WT/$HANDOVER" ]; then
+    mkdir -p "$(dirname "$WT/$HANDOVER")"
+    {
+      echo "# $(agent_stream_slug "$BRANCH"): handover"
+      echo ''
+      echo "Goal: describe the outcome for this stream."
+      echo "Status: in progress"
+      [ -z "$SPEC" ] || echo "Spec: $SPEC"
+      echo ''
+      echo '## Current state in code'
+      echo ''
+      echo '- Nothing completed yet.'
+      echo ''
+      echo '## What will bite'
+      echo ''
+      echo '- Add project-specific hazards here.'
+      echo ''
+      echo '## Not built, in order'
+      echo ''
+      echo '- Define the first implementation step.'
+      echo ''
+      echo '## In flight'
+      echo ''
+      echo '- Nothing yet.'
+      echo ''
+      echo '## Blocked'
+      echo ''
+      echo '- Nothing.'
+      echo ''
+      echo '## Open questions'
+      echo ''
+      echo '- None.'
+      echo ''
+      echo '## Verification protocol'
+      echo ''
+      echo '- Run the project test command.'
+    } > "$WT/$HANDOVER"
+    echo "agent-up: created handover template at $HANDOVER"
+  fi
 
-  # Prisma generates into apps/web/lib/generated/prisma, inside the worktree, so generated clients
-  # cannot collide between worktrees. It needs no DATABASE_URL, which is what lets the code tier
-  # exist without a database.
-  #
-  # Two statements, not `cd ... && npx prisma generate`: bash exempts every command in an
-  # `&&`/`||` list except the last one from the ERR trap, `-E` included. A branch checked out here
-  # that predates apps/web (before 399c77e) makes `cd` fail, and as `&&`'s non-final command that
-  # would abort the script under `-e` while the trap never fires, leaving the worktree and its
-  # cloned node_modules behind uncleaned. Two statements make `cd` the whole (and therefore
-  # non-exempt) command, so its failure is caught like any other.
-  echo "agent-up: generating the Prisma client"
-  (
-    cd "$WT/apps/web"
-    npx prisma generate >/dev/null
-  )
+  echo "agent-up: running the project worktree-setup hook"
+  agent_prepare_worktree "$MAIN" "$WT"
 fi
 
 if [ "$STACK" = "1" ]; then
-  # --- apps/web/.env, spec 4.4.3 -------------------------------------------
+  # --- configured application env ------------------------------------------
   #
-  # The slot env goes in .env and NOT .env.local, because Prisma's CLI reads .env and ignores
-  # .env.local. With the override in .env.local, Next and tsx would read the agent's database
-  # while `prisma migrate dev` read the main one, so an agent running a migration would silently
-  # migrate the primary dev database from inside its supposedly isolated worktree.
-  #
-  # AGENT_SLOT must live here rather than only in the shell for the same reason: Prisma and tsx
-  # read .env, and a slot whose AGENT_SLOT existed only in one shell would run cron the moment
-  # any other process started its server.
-  echo "agent-up: writing apps/web/.env for slot $SLOT"
+  # Slot identity and the rewritten database URL live in the configured application env file,
+  # not only in the invoking shell, so every server, worker, and database CLI in the worktree sees
+  # the same isolation boundary.
+  echo "agent-up: writing $ENV_PATH for slot $SLOT"
 
   # Derive the URL by rewriting only the database name. Never synthesise credentials: the real
   # password is not the spec's illustrative literal.
   # `sed ... | head -1` is avoided: under pipefail sed can outrun head and the pipeline returns
   # 141 (SIGPIPE). `{p;q;}` stops at the first match with no pipe at all.
-  raw=$(sed -n '/^DATABASE_URL=/{s///p;q;}' "$SRC_ENV" \
+  raw=$(sed -n "/^${AGENT_DATABASE_URL_KEY}=/{s///p;q;}" "$SRC_ENV" \
         | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")
   case "$raw" in
     # `fail` calls `exit`, and `exit` does NOT fire an armed ERR trap in bash (a third exemption,
     # distinct from missing -E and from a non-final &&/|| command): verified on this machine that
     # `exit 1` after `trap ... ERR` never runs the trap. Every `fail` call from here to the end of
     # the STACK block is past `trap rollback ERR`, so each must call rollback explicitly first.
-    *\?*) rollback; fail "the main DATABASE_URL carries query parameters; rewrite it by hand for slot $SLOT" ;;
+    *\?*) rollback; fail "the main $AGENT_DATABASE_URL_KEY carries query parameters; rewrite it by hand for slot $SLOT" ;;
   esac
   SLOT_URL="${raw%/*}/$DB"
 
-  # Back up any pre-existing apps/web/.env OUTSIDE the worktree before overwriting it, so rollback
+  # Back up any pre-existing env OUTSIDE the worktree before overwriting it, so rollback
   # can restore it byte for byte. `mktemp` in the system temp dir, not a sibling file in the
-  # worktree: `git check-ignore -v apps/web/.env.agent-up-bak` says NOT IGNORED, so a backup left
+  # worktree: an adjacent backup may not be ignored, so a backup left
   # inside the worktree would show up as untracked, which makes `git worktree remove` refuse and
   # would make agent-reap.sh treat the tree as dirty and refuse to reap it.
-  if [ -f "$WT/apps/web/.env" ]; then
+  if [ -f "$ENV_PATH" ]; then
     ENV_HAD_PRIOR=1
     ENV_BACKUP=$(mktemp "${TMPDIR:-/tmp}/agent-up-env-backup.XXXXXX")
-    cp "$WT/apps/web/.env" "$ENV_BACKUP"
+    cp "$ENV_PATH" "$ENV_BACKUP"
   fi
   ENV_WRITTEN=1
 
-  # Copy every line the main tree has except the four this slot owns, then append ours.
-  grep -v -E '^(AGENT_SLOT|PGBOSS_SCHEMA|DATABASE_URL|NEXT_PUBLIC_APP_URL)=' "$SRC_ENV" \
-    > "$WT/apps/web/.env"
+  # Copy every line the main tree has except the keys this slot owns, then append ours. awk exits
+  # successfully even when every source line is filtered, unlike grep -v under set -e.
+  awk -v slot_key="$AGENT_SLOT_KEY" -v db_key="$AGENT_DATABASE_URL_KEY" \
+      -v queue_key="$AGENT_QUEUE_SCHEMA_KEY" -v public_key="$AGENT_PUBLIC_URL_KEY" '
+    index($0, slot_key "=") == 1 { next }
+    index($0, db_key "=") == 1 { next }
+    queue_key != "" && index($0, queue_key "=") == 1 { next }
+    public_key != "" && index($0, public_key "=") == 1 { next }
+    { print }
+  ' "$SRC_ENV" > "$ENV_PATH"
   {
     echo ''
     echo "# Slot $SLOT, written by scripts/agent-up.sh --stack (spec 4.4.3). Do not copy this"
     echo '# file between worktrees: it is what keeps this stack off the shared database.'
-    printf 'AGENT_SLOT=%s\n' "$SLOT"
-    printf 'DATABASE_URL="%s"\n' "$SLOT_URL"
-    printf 'PGBOSS_SCHEMA=%s\n' "$SCHEMA"
-    # The main tree's value hardcodes port 3000, so an unrewritten copy would point this slot's
-    # absolute URLs at the MAIN tree's server.
-    printf 'NEXT_PUBLIC_APP_URL="http://localhost:%s"\n' "$WEB_PORT"
-  } >> "$WT/apps/web/.env"
-
-  # SPOTIFY_REDIRECT_URI and GOOGLE_REDIRECT_URI also hardcode :3000 and are copied UNCHANGED,
-  # deliberately. They are registered with Spotify and Google, so rewriting them to :3100 would
-  # simply make the provider reject the callback. The consequence is a real and stated limit:
-  # OAuth sign-in on a slot bounces back to the main tree's port. Say so rather than let it be
-  # discovered mid-flow.
-  if grep -qE '^(SPOTIFY_REDIRECT_URI|GOOGLE_REDIRECT_URI)=.*:3000' "$WT/apps/web/.env"; then
-    echo "agent-up: NOTE, the OAuth redirect URIs still point at port 3000. They are registered"
-    echo "agent-up:       with the providers and cannot be slotted, so platform sign-in from this"
-    echo "agent-up:       slot will land on the main tree. Test sign-in on slot 0."
-  fi
+    printf '%s=%s\n' "$AGENT_SLOT_KEY" "$SLOT"
+    printf '%s="%s"\n' "$AGENT_DATABASE_URL_KEY" "$SLOT_URL"
+    [ -z "$AGENT_QUEUE_SCHEMA_KEY" ] || printf '%s=%s\n' "$AGENT_QUEUE_SCHEMA_KEY" "$SCHEMA"
+    if [ -n "$AGENT_PUBLIC_URL_KEY" ]; then
+      public_url=$(printf "$AGENT_PUBLIC_URL_FORMAT" "$WEB_PORT")
+      printf '%s="%s"\n' "$AGENT_PUBLIC_URL_KEY" "$public_url"
+    fi
+  } >> "$ENV_PATH"
+  agent_after_slot_env "$ENV_PATH" "$SLOT" "$WEB_PORT"
 
   # --- the database clone, spec 4.3 ----------------------------------------
   #
-  # CREATE DATABASE ... TEMPLATE fails here: the template has live sessions. pg_dump piped into
-  # psql takes 1.1s and preserves all 1199 global_enrichment rows.
-  echo "agent-up: cloning $TEMPLATE into $DB (about 1.1s)"
+  # pg_dump works even when the source database has live development sessions, unlike
+  # CREATE DATABASE ... TEMPLATE.
+  echo "agent-up: cloning $TEMPLATE into $DB"
   createdb -U "$AGENT_PG_USER" "$DB"
   CREATED_DB=1
   pg_dump -U "$AGENT_PG_USER" "$TEMPLATE" \
     | psql -U "$AGENT_PG_USER" -d "$DB" -q -v ON_ERROR_STOP=1 >/dev/null
 
-  # NOT OPTIONAL. The dump carries the default pgboss schema with its 10 cron rows, including
-  # press-all-editions at '0 * * * *'. Dropping it means pg-boss creates pgboss_a<N> fresh with
-  # an EMPTY schedule table, so a non-owner agent runs no cron at all. Agents trigger jobs
-  # explicitly through apps/web/scripts/dev-press-now.ts instead.
-  echo "agent-up: dropping the inherited pgboss schema from $DB"
-  psql -U "$AGENT_PG_USER" -d "$DB" -q -v ON_ERROR_STOP=1 -c 'DROP SCHEMA IF EXISTS pgboss CASCADE'
-  left=$(psql -U "$AGENT_PG_USER" -d "$DB" -tAc \
-         "select count(*) from pg_namespace where nspname = 'pgboss'")
-  [ "$left" = "0" ] || { rollback; fail "the inherited pgboss schema survived in $DB. Refusing to leave a slot that can fire cron."; }
+  # A project with a cloned scheduled-work schema names it explicitly. Empty means there is no
+  # inherited queue schema to remove.
+  if [ -n "$AGENT_INHERITED_QUEUE_SCHEMA" ]; then
+    echo "agent-up: dropping inherited queue schema $AGENT_INHERITED_QUEUE_SCHEMA from $DB"
+    psql -U "$AGENT_PG_USER" -d "$DB" -q -v ON_ERROR_STOP=1 \
+      -c "DROP SCHEMA IF EXISTS $AGENT_INHERITED_QUEUE_SCHEMA CASCADE"
+    left=$(psql -U "$AGENT_PG_USER" -d "$DB" -tAc \
+           "select count(*) from pg_namespace where nspname = '$AGENT_INHERITED_QUEUE_SCHEMA'")
+    [ "$left" = "0" ] || { rollback; fail "the inherited queue schema survived in $DB. Refusing to leave a slot that can fire cron."; }
+  fi
 
   # Keep the .agent echo honest after an upgrade. Guarded, not fatal: by this point the slot is
-  # fully and correctly provisioned (database cloned, inherited schema dropped, .env written), and
-  # .agent's TIER is not an authority, agent_tier_of_worktree derives tier solely from AGENT_SLOT
-  # in apps/web/.env and never opens .agent (see the header this script writes into it, "Intent
+  # fully and correctly provisioned (database cloned, inherited schema dropped, env written), and
+  # .agent's TIER is not an authority, agent_tier_of_worktree derives tier solely from the slot key
+  # in the configured env and never opens .agent (see the header this script writes into it, "Intent
   # only"). A failure here can only make the echo lag reality, not make the slot behave wrong, so
   # rolling back a correct clone and .env write to fix a label is the same spurious-rollback shape
   # line 326 below exists to avoid. Warn instead.
   if [ -f "$WT/.agent" ]; then
     if ! sed -i '' 's/^TIER=code$/TIER=stack/' "$WT/.agent" 2>/dev/null; then
       echo "agent-up: WARNING, could not refresh the .agent TIER echo. Cosmetic only: tier is derived" >&2
-      echo "agent-up:          from apps/web/.env, not from .agent. The slot is provisioned correctly." >&2
+      echo "agent-up:          from $ENV_PATH, not from .agent. The slot is provisioned correctly." >&2
     fi
   fi
 
@@ -350,12 +381,12 @@ agent-up: stack tier ready.
   handover    $HANDOVER
   slot        $SLOT
   database    $DB
-  queue       $SCHEMA (empty schedule: this slot never fires cron)
+  queue       $SCHEMA$([ -n "$AGENT_INHERITED_QUEUE_SCHEMA" ] && printf ' (inherited %s removed)' "$AGENT_INHERITED_QUEUE_SCHEMA")
   web port    $WEB_PORT
   Metro port  $METRO_PORT
 
 Read the handover before your first write (spec 4.9 item 9).
-Start the server: scripts/agent-dev.sh
+Start the server: scripts/agent-dev.sh (uses the project hook in .agent-slots.conf)
 Stop when you pause, down when you merge: scripts/agent-stop.sh $SLOT / scripts/agent-down.sh $SLOT
 EOF
 else
@@ -368,7 +399,7 @@ agent-up: code tier ready.
   tier      code (no slot, no database, no ports)
 
 Read the handover before your first write (spec 4.9 item 9).
-Tests run here now: cd apps/web && npx vitest run
+Tests run here now: $AGENT_TEST_COMMAND
 To boot a server, upgrade in place: scripts/agent-up.sh $BRANCH --stack
 EOF
 fi

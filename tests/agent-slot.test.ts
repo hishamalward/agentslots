@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'os';
 import path from 'path';
 
-const REPO = path.resolve(__dirname, '../../..');
+const REPO = path.resolve(__dirname, '..');
 const LIB = path.join(REPO, 'scripts/lib/agent-slot.sh');
 
 /** Source the library in a fresh bash and evaluate one snippet against it. */
@@ -98,7 +98,7 @@ describe('path derivation', () => {
   it('puts worktrees beside the main root, never nested inside it', () => {
     const root = sh('agent_main_root');
     const wt = sh('agent_worktree_path feat/weekly-recap');
-    expect(wt).toBe(path.join(path.dirname(root), 'ma-weekly-recap'));
+    expect(wt).toBe(path.join(path.dirname(root), 'agent-slots-weekly-recap'));
     expect(wt.startsWith(root + path.sep)).toBe(false);
   });
 
@@ -109,7 +109,7 @@ describe('path derivation', () => {
   it('reproduces this worktree, which was provisioned by hand to the same rules', () => {
     const root = sh('agent_main_root');
     expect(sh('agent_worktree_path feat/multi-agent-isolation'))
-      .toBe(path.join(path.dirname(root), 'ma-multi-agent-isolation'));
+      .toBe(path.join(path.dirname(root), 'agent-slots-multi-agent-isolation'));
     expect(sh('agent_handover_path feat/multi-agent-isolation'))
       .toBe('docs/plans/multi-agent-isolation-handover.md');
   });
@@ -117,15 +117,15 @@ describe('path derivation', () => {
 
 describe('resource derivation (spec 4.1 table)', () => {
   it('slot 0 is today, byte for byte', () => {
-    expect(sh('agent_db_name 0')).toBe('music_analytics_dev');
+    expect(sh('agent_db_name 0')).toBe('agent_slots_dev');
     expect(sh('agent_boss_schema 0')).toBe('pgboss');
     expect(sh('agent_web_port 0')).toBe('3000');
     expect(sh('agent_metro_port 0')).toBe('8081');
   });
 
   it('slots 1 and 2 match the spec table exactly', () => {
-    expect(sh('agent_db_name 1')).toBe('music_analytics_a1');
-    expect(sh('agent_db_name 2')).toBe('music_analytics_a2');
+    expect(sh('agent_db_name 1')).toBe('agent_slots_a1');
+    expect(sh('agent_db_name 2')).toBe('agent_slots_a2');
     expect(sh('agent_boss_schema 1')).toBe('pgboss_a1');
     expect(sh('agent_boss_schema 2')).toBe('pgboss_a2');
     expect(sh('agent_web_port 1')).toBe('3100');
@@ -147,21 +147,21 @@ describe('resource derivation (spec 4.1 table)', () => {
 });
 
 describe('reality probes (read-only, no provisioning)', () => {
-  it('finds the database that dev-environment.md says exists', () => {
-    expect(ok('agent_db_exists music_analytics_dev')).toBe(true);
+  it('finds a database reported by psql', () => {
+    expect(ok("psql() { printf '1\\n'; }; agent_db_exists agent_slots_dev")).toBe(true);
   });
 
   it('does not find a database that does not exist', () => {
-    expect(ok('agent_db_exists music_analytics_definitely_not_here')).toBe(false);
+    expect(ok('psql() { :; }; agent_db_exists agent_slots_definitely_not_here')).toBe(false);
   });
 
   it('reports a port with no listener as free', () => {
     // 3900 is slot 9's web port. Nothing in this design binds it during a unit run.
-    expect(ok('agent_port_busy 3900')).toBe(false);
+    expect(ok('lsof() { return 1; }; agent_port_busy 3900')).toBe(false);
   });
 
   it('returns a slot in 1..9 from next_free_slot', () => {
-    expect(sh('agent_next_free_slot')).toMatch(/^[1-9]$/);
+    expect(sh('psql() { :; }; lsof() { return 1; }; agent_next_free_slot')).toBe('1');
   });
 
   it('classifies the main worktree as the main tier and slot 0', () => {
@@ -169,7 +169,7 @@ describe('reality probes (read-only, no provisioning)', () => {
     expect(sh('agent_slot_of_worktree "$(agent_main_root)"')).toBe('0');
   });
 
-  it('classifies a worktree with no apps/web/.env as code tier with NO slot', () => {
+  it('classifies a worktree with no configured env file as code tier with NO slot', () => {
     // A code-tier worktree has no slot at all. That is not slot 0: slot 0 is the main tree,
     // and conflating them is how a code worktree would end up owning the cron schedules.
     const tmp = sh('printf %s "$TMPDIR"') || '/tmp';
@@ -178,16 +178,8 @@ describe('reality probes (read-only, no provisioning)', () => {
   });
 });
 
-// agent_sim_lock_alive centralizes sim-lock.sh's own liveness rule (booted UDID checked first,
-// recorded PID only as a fallback) so agent-status.sh and agent-reap.sh cannot each implement a
-// narrower one and destroy a lock whose device is still booted, which is the defect this function
-// exists to close.
-//
-// Only the PID-only branches and the missing-file branch are testable here without a simulator.
-// The UDID-booted branch (a lock naming a device that IS booted, with any PID) cannot be tested
-// without booting a real device, and this suite must not do that: task 9's own verification
-// recorded a reviewer booting one by hand to probe this exact code path and having to be stopped
-// by the controller. So that branch is exercised only by hand, never by this suite.
+// xcrun is replaced with a shell function for the UDID branches. The liveness predicate cares
+// about command output, not a real simulator, so all combinations are safe to test headlessly.
 describe('agent_sim_lock_alive', () => {
   function simLockDir(): string {
     return mkdtempSync(path.join(tmpdir(), 'agent-slot-simlock-'));
@@ -218,10 +210,43 @@ describe('agent_sim_lock_alive', () => {
     try {
       // A shell that has already printed its own pid and exited: the pid is real but dead by
       // the time this line returns. Same fixture shape as the manual verification in
-      // task-9-report.md (`DEAD=$(bash -c 'echo $$')`).
+      // The child shell has exited before the lock is evaluated.
       const deadPid = execFileSync('bash', ['-c', 'echo $$'], { encoding: 'utf8' }).trim();
       const lock = writeLock(dir, deadPid);
       expect(ok(`agent_sim_lock_alive "${lock}"`)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads alive only when both the holder pid and named device are alive', () => {
+    const dir = simLockDir();
+    try {
+      const lock = writeLock(dir, String(process.pid), 'BOOTED-DEVICE');
+      expect(ok(`xcrun() { printf 'iPhone (BOOTED-DEVICE) (Booted)\\n'; }; agent_sim_lock_alive "${lock}"`))
+        .toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads dead for a booted device whose holder pid has exited', () => {
+    const dir = simLockDir();
+    try {
+      const deadPid = execFileSync('bash', ['-c', 'echo $$'], { encoding: 'utf8' }).trim();
+      const lock = writeLock(dir, deadPid, 'BOOTED-DEVICE');
+      expect(ok(`xcrun() { printf 'iPhone (BOOTED-DEVICE) (Booted)\\n'; }; agent_sim_lock_alive "${lock}"`))
+        .toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads dead for a live holder whose named device is no longer booted', () => {
+    const dir = simLockDir();
+    try {
+      const lock = writeLock(dir, String(process.pid), 'STOPPED-DEVICE');
+      expect(ok(`xcrun() { :; }; agent_sim_lock_alive "${lock}"`)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -249,15 +274,15 @@ describe('agent_sim_lock_alive', () => {
 describe('reading a stack-tier worktree back off disk', () => {
   function fakeStackWorktree(slot: string): string {
     const dir = mkdtempSync(path.join(tmpdir(), 'agent-slot-'));
-    mkdirSync(path.join(dir, 'apps/web'), { recursive: true });
+    mkdirSync(dir, { recursive: true });
     writeFileSync(
-      path.join(dir, 'apps/web/.env'),
+      path.join(dir, '.env'),
       [
         '# a comment line, which must not be mistaken for a key',
         'NEXT_PUBLIC_APP_URL="http://localhost:3100"',
         `AGENT_SLOT=${slot}`,
         'PGBOSS_SCHEMA=pgboss_a' + slot,
-        'DATABASE_URL="postgresql://tracker:pw@localhost:5432/music_analytics_a' + slot + '"',
+        'DATABASE_URL="postgresql://user:pw@localhost:5432/agent_slots_a' + slot + '"',
       ].join('\n') + '\n',
     );
     return dir;
@@ -272,7 +297,7 @@ describe('reading a stack-tier worktree back off disk', () => {
       expect(sh(`agent_slot_of_worktree "${dir}"`)).toBe('7');
       expect(sh(`agent_web_port "$(agent_slot_of_worktree "${dir}")"`)).toBe('3700');
       expect(sh(`agent_metro_port "$(agent_slot_of_worktree "${dir}")"`)).toBe('8781');
-      expect(sh(`agent_db_name "$(agent_slot_of_worktree "${dir}")"`)).toBe('music_analytics_a7');
+      expect(sh(`agent_db_name "$(agent_slot_of_worktree "${dir}")"`)).toBe('agent_slots_a7');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -302,8 +327,7 @@ describe('reading a stack-tier worktree back off disk', () => {
     //
     //   FALSE POSITIVE: a key class of [A-Za-z0-9_]+ matches the warning comment a few lines up
     //   in agent-slot.sh, which quotes the banned form in order to ban it. The test then fails on
-    //   a perfectly correct implementation. That is the same shape CLAUDE.md warns about, where a
-    //   check forbids a string its own task mandates.
+    //   a perfectly correct implementation, making the guard forbid its own explanatory text.
     //
     //   FALSE NEGATIVE: the same class cannot match sim-lock.sh's `sed -n "s/^$1=//{p;q;}"`,
     //   where the key is a shell variable rather than a literal. That was the real offender, and
@@ -396,7 +420,7 @@ describe('agent_handover_behind', () => {
   // that, and give agent_handover_behind a fixed target here.
   it('prints a commit count for a handover with real history, without asserting a literal', () => {
     // The literal count grows with every commit on this branch, so only the shape is checked.
-    const out = sh(`agent_handover_behind "${REPO}" docs/plans/multi-agent-isolation-handover.md`);
+    const out = sh(`agent_handover_behind "${REPO}" README.md`);
     expect(out).toMatch(/^\d+$/);
   });
 
@@ -423,7 +447,7 @@ describe('agent_handover_behind', () => {
 // commits of its own is "fully merged" from the instant it exists, the same shape as a branch
 // whose real work already landed. Tip comparison cannot tell the two apart either: a fast-forward
 // or merge-commit merge leaves the feature branch's own tip exactly where it was created, in both
-// cases. The branch's OWN reflog can: `git worktree add -b` writes exactly one entry (its
+// cases. The branch's OWN reflog can: creating the branch writes exactly one entry (its
 // creation), every commit made on the branch appends another, and merging it into main (either
 // shape) never touches its own ref, only main's.
 //

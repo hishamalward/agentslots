@@ -8,6 +8,8 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git lsof
 
 WT=$(git rev-parse --show-toplevel)
 TIER=$(agent_tier_of_worktree "$WT")
@@ -35,5 +37,4 @@ echo "agent-mobile: slot $SLOT, Metro on $PORT"
 echo "agent-mobile: this slot's API is on $WEB_PORT. Point the app at it if you are testing"
 echo "              against this stack rather than the main one."
 echo "agent-mobile: the simulator is exclusive. Take the lock first: scripts/sim-lock.sh acquire $SLOT"
-cd "$WT/apps/mobile"
-exec npx expo start --port "$PORT" "$@"
+agent_start_mobile "$WT" "$PORT" "$@"

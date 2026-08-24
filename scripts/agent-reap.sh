@@ -11,6 +11,9 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git lsof psql dropdb
+agent_postgres_reachable || { echo "agent-reap: PostgreSQL is unreachable for role $AGENT_PG_USER" >&2; exit 1; }
 
 EXECUTE=0
 case "${1:-}" in
@@ -20,6 +23,9 @@ case "${1:-}" in
 esac
 
 MAIN=$(agent_main_root)
+MAIN_BRANCH=$(agent_main_branch)
+git -C "$MAIN" show-ref --verify --quiet "refs/heads/$MAIN_BRANCH" \
+  || { echo "agent-reap: configured main branch does not exist: $MAIN_BRANCH" >&2; exit 1; }
 REAPED=0
 REFUSED=0
 FAILED=0
@@ -59,10 +65,10 @@ while IFS= read -r wt; do
   [ -n "$branch" ] && [ "$branch" != "HEAD" ] || continue
   # `main` is only ever meant to be checked out in the main tree, but nothing enforces that, so a
   # linked worktree sitting on `main` must be skipped rather than treated as a candidate.
-  [ "$branch" != "main" ] || continue
+  [ "$branch" != "$MAIN_BRANCH" ] || continue
   # -F: the branch name is not a regex. `-x` alone still lets two branches differing by one
   # character at a `.` (the only metacharacter git's ref format allows) false-match.
-  git -C "$MAIN" branch --merged main --format='%(refname:short)' | grep -Fqx "$branch" || continue
+  git -C "$MAIN" branch --merged "$MAIN_BRANCH" --format='%(refname:short)' | grep -Fqx "$branch" || continue
 
   FOUND=$((FOUND + 1))
   slot=$(agent_slot_of_worktree "$wt" 2>/dev/null || true)
@@ -72,14 +78,14 @@ while IFS= read -r wt; do
   # protocol) is "fully merged" from the instant it exists, same shape as work that genuinely
   # already landed, and tip comparison cannot tell the two apart either (a fast-forward or
   # merge-commit merge leaves the branch's own tip exactly where it was created). The branch's OWN
-  # reflog can: `git worktree add -b` writes exactly one entry (its creation), every commit made
+  # reflog can: creating the branch writes exactly one entry, every commit made
   # on the branch appends another, and merging it into main never touches its own ref, either
   # merge shape. See agent_branch_has_own_commits in lib/agent-slot.sh.
   if ! agent_branch_has_own_commits "$MAIN" "$branch"; then
     if [ -n "$slot" ]; then
-      refuse "$wt (slot $slot) branch $branch is merged into main but its reflog shows no commits of its own. This is what agent-up.sh's output looks like the instant it is cut, before any work; it can also be an old branch whose reflog has since expired. Not reaping it automatically: if you are certain it is done, agent-down.sh $slot by hand."
+      refuse "$wt (slot $slot) branch $branch is merged into $MAIN_BRANCH but its reflog shows no commits of its own. This is what agent-up.sh's output looks like the instant it is cut, before any work; it can also be an old branch whose reflog has since expired. Not reaping it automatically: if you are certain it is done, agent-down.sh $slot by hand."
     else
-      refuse "$wt branch $branch is merged into main but its reflog shows no commits of its own. This is what agent-up.sh's output looks like the instant it is cut, before any work; it can also be an old branch whose reflog has since expired. Not reaping it automatically: if you are certain it is done, git worktree remove $wt by hand."
+      refuse "$wt branch $branch is merged into $MAIN_BRANCH but its reflog shows no commits of its own. This is what agent-up.sh's output looks like the instant it is cut, before any work; it can also be an old branch whose reflog has since expired. Not reaping it automatically: if you are certain it is done, git worktree remove $wt by hand."
     fi
     continue
   fi
@@ -111,9 +117,9 @@ while IFS= read -r wt; do
 
   printf '  ORPHAN   %s\n' "$wt"
   if mb=$(du -sm "$wt" 2>/dev/null | awk '{print $1}'); then
-    printf '           branch %s is fully merged into main, about %s MB reclaimable\n' "$branch" "$mb"
+    printf '           branch %s is fully merged into %s, about %s MB reclaimable\n' "$branch" "$MAIN_BRANCH" "$mb"
   else
-    printf '           branch %s is fully merged into main (could not measure size, du failed)\n' "$branch"
+    printf '           branch %s is fully merged into %s (could not measure size, du failed)\n' "$branch" "$MAIN_BRANCH"
   fi
 
   if [ -n "$(git -C "$wt" status --porcelain)" ]; then
@@ -153,10 +159,14 @@ claimed=$(while IFS= read -r wt; do
   [ -d "$wt" ] && agent_slot_of_worktree "$wt" 2>/dev/null || true
 done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}') | tr '\n' ' ')
 
-for n in 1 2 3 4 5 6 7 8 9; do
-  case " $claimed " in *" $n "*) continue ;; esac
+n=1
+while [ "$n" -le "$AGENT_SLOT_MAX" ]; do
+  case " $claimed " in *" $n "*) n=$((n + 1)); continue ;; esac
   db=$(agent_db_name "$n")
-  agent_db_exists "$db" || continue
+  if ! agent_db_exists "$db"; then
+    n=$((n + 1))
+    continue
+  fi
 
   FOUND=$((FOUND + 1))
   size=$(psql -U "$AGENT_PG_USER" -d postgres -tAc \
@@ -172,11 +182,13 @@ for n in 1 2 3 4 5 6 7 8 9; do
   else
     printf '           would run: dropdb %s\n' "$db"
   fi
+  n=$((n + 1))
 done
 
 # --- orphan class 3: a listening slot port with no worktree -----------------
-for n in 1 2 3 4 5 6 7 8 9; do
-  case " $claimed " in *" $n "*) continue ;; esac
+n=1
+while [ "$n" -le "$AGENT_SLOT_MAX" ]; do
+  case " $claimed " in *" $n "*) n=$((n + 1)); continue ;; esac
   for port in "$(agent_web_port "$n")" "$(agent_metro_port "$n")"; do
     agent_port_busy "$port" || continue
     FOUND=$((FOUND + 1))
@@ -185,15 +197,17 @@ for n in 1 2 3 4 5 6 7 8 9; do
     # unidentified listener is the kind of automated destruction this script exists to avoid.
     refuse "will not kill an unidentified process. Inspect: lsof -nP -iTCP:$port -sTCP:LISTEN"
   done
+  n=$((n + 1))
 done
 
 # --- orphan class 4: a simulator lock whose holder is dead ------------------
 SIM_LOCK="$AGENT_SIM_LOCK"
 if [ -f "$SIM_LOCK" ]; then
+  agent_require_commands xcrun
   lpid=$(sed -n '/^PID=/{s///p;q;}' "$SIM_LOCK" 2>/dev/null || true)
   if ! agent_sim_lock_alive "$SIM_LOCK"; then
     FOUND=$((FOUND + 1))
-    printf '  ORPHAN   simulator lock held by dead pid %s\n' "$lpid"
+    printf '  ORPHAN   simulator lock has a dead owner or stopped device (recorded pid %s)\n' "$lpid"
     if act; then
       if rm -f "$SIM_LOCK" 2>/dev/null; then
         REAPED=$((REAPED + 1))

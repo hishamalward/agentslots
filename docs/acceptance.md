@@ -1,5 +1,11 @@
 # Acceptance results
 
+The table below preserves the original live acceptance run from the source project. The current
+standalone repository also has an automated suite covering resource derivation, configuration,
+simulator liveness, pg-boss schedule ownership, provisioning, refusal paths, and rollback. Run it
+with `npm run check`; the database-backed positive-control probe remains an explicit
+`npm run test:queue` check because it requires disposable PostgreSQL schemas.
+
 This is the actual acceptance run against the machinery in this repository, on the source
 project, reproduced here rather than paraphrased. Every row records the command that was run and
 its actual output, not a judgement, except the two rows marked as judged. Paths, branch names and

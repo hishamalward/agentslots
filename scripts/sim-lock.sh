@@ -6,6 +6,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
 
 LOCK="$AGENT_SIM_LOCK"
 LOCK_DIR=$(dirname "$LOCK")
@@ -21,7 +22,7 @@ FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
-    *) SLOT="$1"; shift ;;
+    *) [ -z "$SLOT" ] || usage; SLOT="$1"; shift ;;
   esac
 done
 
@@ -39,10 +40,8 @@ lock_get() { [ -f "$LOCK" ] && sed -n "/^$1=/{s///p;q;}" "$LOCK" || true; }
 # invoking shell, $PPID, is the best available proxy for "the agent that took this lock".
 PID_TO_RECORD="${AGENT_SIM_PID:-$PPID}"
 
-# The OS is the authority (principle 3), and the strongest OS-level fact is the booted device:
-# it survives the script that booted it and is the resource actually being contended. Check it
-# first, and fall back to the recorded pid only when the lock names no device. This rule now
-# lives in scripts/lib/agent-slot.sh, so agent-status.sh and agent-reap.sh cannot drift from it.
+# The owner process and device must both still exist after acquisition completes. During the
+# claim-before-boot window the UDID is empty, so the live owner process alone protects the claim.
 holder_alive() {
   agent_sim_lock_alive "$LOCK"
 }
@@ -62,6 +61,7 @@ case "$ACTION" in
       echo "sim-lock: free"
       exit 0
     fi
+    agent_require_commands xcrun
     printf 'sim-lock: held by slot %s, pid %s, device %s, for %s\n' \
       "$(lock_get SLOT)" "$(lock_get PID)" "$(lock_get UDID)" "$(held_for)"
     if holder_alive; then
@@ -74,7 +74,8 @@ case "$ACTION" in
 
   acquire)
     [ -n "$SLOT" ] || usage
-    agent_slot_valid "$SLOT" || { echo "sim-lock: slot must be a digit 0..9, got '$SLOT'" >&2; exit 2; }
+    agent_slot_valid "$SLOT" || { echo "sim-lock: slot must be in 0..$AGENT_SLOT_MAX, got '$SLOT'" >&2; exit 2; }
+    agent_require_commands xcrun jq
 
     mkdir -p "$LOCK_DIR"
 
@@ -194,6 +195,7 @@ case "$ACTION" in
       echo "sim-lock: no lock to release"
       exit 0
     fi
+    agent_require_commands xcrun
     holder=$(lock_get SLOT)
     if [ "$holder" != "$SLOT" ] && [ "$FORCE" = "0" ]; then
       printf 'sim-lock: REFUSED. The lock is held by slot %s, not %s. Use --force to override.\n' \

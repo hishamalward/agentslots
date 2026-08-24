@@ -9,6 +9,8 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git lsof
 
 WT=$(git rev-parse --show-toplevel)
 TIER=$(agent_tier_of_worktree "$WT")
@@ -35,5 +37,4 @@ if agent_port_busy "$PORT"; then
 fi
 
 echo "agent-dev: slot $SLOT, http://localhost:$PORT"
-cd "$WT/apps/web"
-exec npx next dev -p "$PORT" "$@"
+agent_start_web "$WT" "$PORT" "$@"

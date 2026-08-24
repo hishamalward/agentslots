@@ -76,7 +76,7 @@ never a decision you have to undo.
 
 ```
 AGENT_SLOT=0   the main tree, the default, unchanged
-AGENT_SLOT=N   a booted stack, N in 1..9
+AGENT_SLOT=N   a booted stack, N in 1..AGENT_SLOT_MAX
 ```
 
 | Resource | Formula | Slot 0 | Slot 1 | Slot 2 |
@@ -120,7 +120,7 @@ Code tier:
 
 Stack tier adds:
 
-3. A slot in 1..9 is free (auto-assigned, lowest free).
+3. A slot in the configured range is free (auto-assigned, lowest free).
 4. Web and bundler ports are free.
 5. The slot's database does not already exist.
 6. The template database is reachable.
@@ -479,6 +479,5 @@ Stated plainly, because a design that oversells its guarantees is worse than one
 The corresponding "clean up the local dev baseline first" work (section 4.2) was a set of
 project-specific documentation and config fixes and is not included here, since none of it applies
 outside the source project. What generalizes from it is principle 4.2's own rule: keep local dev
-facts in exactly one place. The nine scripts under `scripts/` and the two production-code lines
-described in `docs/queue-isolation.md` are the parts of this design that are actually reusable, and
-they are what this repository ships.
+facts in exactly one place. This repository ships the configurable shell machinery, a project
+adapter example, importable pg-boss integration helpers, and an executable positive-control probe.

@@ -8,13 +8,22 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+agent_config_validate
+agent_require_commands git lsof
 
 SIM_LOCK="$AGENT_SIM_LOCK"
 
-[ $# -ge 1 ] || { echo "usage: agent-stop.sh <slot>" >&2; exit 2; }
+[ $# -eq 1 ] || { echo "usage: agent-stop.sh <slot>" >&2; exit 2; }
 SLOT="$1"
-agent_slot_valid "$SLOT" || { echo "agent-stop: slot must be a digit 0..9, got '$SLOT'" >&2; exit 2; }
+agent_slot_valid "$SLOT" || { echo "agent-stop: slot must be in 0..$AGENT_SLOT_MAX, got '$SLOT'" >&2; exit 2; }
 [ "$SLOT" != "0" ] || { echo "agent-stop: refusing to stop slot 0, the main tree. Stop it by hand." >&2; exit 1; }
+
+WT=$(agent_worktree_for_slot "$SLOT" 2>/dev/null || true)
+[ -n "$WT" ] || {
+  echo "agent-stop: refusing to kill ports for slot $SLOT because no worktree claims it." >&2
+  echo "agent-stop: inspect unidentified listeners with agent-status.sh." >&2
+  exit 1
+}
 
 kill_port() {
   local port="$1" label="$2" pids
@@ -43,6 +52,7 @@ kill_port "$(agent_metro_port "$SLOT")" "Metro"
 
 # Teardown must not strand the simulator lock (spec 4.5).
 if [ -f "$SIM_LOCK" ] && [ "$(sed -n '/^SLOT=/{s///p;q;}' "$SIM_LOCK")" = "$SLOT" ]; then
+  agent_require_commands xcrun
   echo "agent-stop: releasing the simulator lock held by slot $SLOT"
   "$HERE/sim-lock.sh" release "$SLOT" || echo "agent-stop: sim-lock release reported a problem, continuing"
 fi

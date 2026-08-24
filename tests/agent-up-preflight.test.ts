@@ -1,17 +1,17 @@
 // scripts/agent-up.sh provisions the code tier worktree that Tasks 4 through 12 all build on,
 // so its contract needs coverage even though the script itself has no test framework of its own.
-// This suite covers only the refusal paths: none of them provision anything, so the whole file
-// runs in well under a second and needs no cleanup afterwards. The happy path costs about 20s
-// and clones 1.4GB of node_modules, and is exercised manually (task-3-report.md), not here.
+// This suite covers refusal paths; successful provisioning and rollback are exercised against
+// disposable repositories in agent-up-integration.test.ts.
 //
 // bash 3.2 is the macOS system bash agent-up.sh targets. Running it via `bash` here is running
 // it under the same interpreter the real invocation uses.
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 
-const REPO = path.resolve(__dirname, '../../..');
+const REPO = path.resolve(__dirname, '..');
 const SCRIPT = path.join(REPO, 'scripts/agent-up.sh');
 
 interface Run {
@@ -40,8 +40,8 @@ function worktreeList(): string {
 }
 
 /** The branch checked out in the MAIN worktree right now, or null if it is detached.
- *  Never hardcode `main`: this repo's main tree switches branches mid-session (it is on
- *  recap-dashboard-round2-2026-07-29 as this file is written), so a hardcoded branch would
+ *  Never hardcode the checked-out branch: the main worktree can switch branches mid-session, so
+ *  a hardcoded branch would
  *  either exercise the wrong preflight check or silently stop testing this one at all.
  *
  *  Porcelain entries are separated by a blank line and the main worktree is always the first
@@ -67,10 +67,10 @@ function derivedWorktreePath(branch: string): string {
   const idx = branch.indexOf('/');
   const stripped = idx === -1 ? branch : branch.slice(idx + 1);
   const slug = stripped.replace(/\//g, '-');
-  return path.join(path.dirname(mainWorktreeRoot()), `ma-${slug}`);
+  return path.join(path.dirname(mainWorktreeRoot()), `${path.basename(mainWorktreeRoot())}-${slug}`);
 }
 
-// Computed once at collection time, same as the manual verification in task-3-report.md.
+// Computed once at collection time.
 const MAIN_BRANCH = mainWorktreeBranch();
 // preflight 1 ("path already exists") runs before preflight 2 ("checked out elsewhere") in
 // agent-up.sh, so if the main worktree's branch happens to derive a path that already has a
@@ -110,8 +110,8 @@ describe('agent-up.sh refusal paths', () => {
   it('refuses a worktree path that already exists', () => {
     // This used to hardcode run(['feat/multi-agent-isolation']), relying on this branch's own
     // worktree already sitting at ../ma-multi-agent-isolation. That is ambient machine state, not
-    // a fact this test controls: the merge protocol this branch itself writes (CLAUDE.md, "down
-    // when you merge") removes that worktree once this branch merges, so the next `npm test` from
+    // a fact this test controls: the merge protocol removes that worktree once this branch merges,
+    // so the next `npm test` from
     // the main tree would find the path free, take agent-up.sh's happy path (a real
     // `git worktree add`, a cloned node_modules, `npx prisma generate`), and THEN fail the
     // `toBe(1)` assertion, after already provisioning something. This is the one test in the repo
@@ -123,19 +123,40 @@ describe('agent-up.sh refusal paths', () => {
     // sufficient regardless of what branches or worktrees exist on this machine. The fixture
     // branch name is one no human would use for real work, so it can never collide with a real
     // worktree on either side of a merge.
-    const branch = 'chore/agent-up-preflight-collision-fixture-zzz';
-    const wt = derivedWorktreePath(branch);
-    // Guard: if a worktree already sits here, this fixture would not be testing what it claims to.
-    expect(existsSync(wt)).toBe(false);
-    const before = worktreeList();
-    mkdirSync(wt, { recursive: true });
+    const base = mkdtempSync(path.join(tmpdir(), 'agent-up-preflight-'));
+    const repo = path.join(base, 'main');
+    const wt = path.join(base, 'fixture-collision-fixture-zzz');
+    mkdirSync(repo);
     try {
-      const r = run([branch]);
-      expect(r.status).toBe(1);
-      expect(r.stderr).toContain('already exists');
+      execFileSync('git', ['init', '-q', '-b', 'trunk'], { cwd: repo });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+      execFileSync('git', ['config', 'user.name', 'Agent Slots Test'], { cwd: repo });
+      cpSync(path.join(REPO, 'scripts'), path.join(repo, 'scripts'), { recursive: true });
+      writeFileSync(path.join(repo, '.gitignore'), '.agent\n');
+      writeFileSync(path.join(repo, '.agent-slots.conf'), [
+        'AGENT_MAIN_BRANCH=trunk',
+        'AGENT_PROJECT_SLUG=fixture',
+        'AGENT_WORKTREE_PREFIX=fixture-',
+      ].join('\n'));
+      execFileSync('git', ['add', '.'], { cwd: repo });
+      execFileSync('git', ['commit', '-q', '-m', 'fixture'], { cwd: repo });
+      mkdirSync(wt);
+
+      let status = 0;
+      let stderr = '';
+      try {
+        execFileSync('bash', ['scripts/agent-up.sh', 'chore/collision-fixture-zzz'], {
+          cwd: repo,
+          encoding: 'utf8',
+        });
+      } catch (error: any) {
+        status = error.status;
+        stderr = error.stderr?.toString() ?? '';
+      }
+      expect(status).toBe(1);
+      expect(stderr).toContain('already exists');
     } finally {
-      rmSync(wt, { recursive: true, force: true });
+      rmSync(base, { recursive: true, force: true });
     }
-    expect(worktreeList()).toBe(before);
   });
 });

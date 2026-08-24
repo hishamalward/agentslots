@@ -1,0 +1,57 @@
+# Copy this file to .agent-slots.conf in the project that will use agent-slots and commit it.
+# This example adapts a Next.js + Prisma + pg-boss + Expo npm-workspaces project. Values contain
+# no secrets; credentials remain in the application's normal env file.
+
+AGENT_MAIN_BRANCH=main
+AGENT_PROJECT_SLUG=your_project
+AGENT_DATABASE_MAIN=your_project_dev
+AGENT_DATABASE_PREFIX=your_project_a
+AGENT_PG_USER="${USER:-postgres}"
+
+AGENT_APP_DIR=apps/web
+AGENT_MOBILE_DIR=apps/mobile
+AGENT_ENV_FILE=.env
+AGENT_CONFLICT_ENV_FILE=.env.local
+
+AGENT_WEB_PORT_BASE=3000
+AGENT_METRO_PORT_BASE=8081
+AGENT_PORT_STEP=100
+AGENT_SLOT_MAX=9
+AGENT_WORKTREE_PREFIX=your-project-
+
+AGENT_SLOT_KEY=AGENT_SLOT
+AGENT_DATABASE_URL_KEY=DATABASE_URL
+AGENT_QUEUE_SCHEMA_KEY=PGBOSS_SCHEMA
+AGENT_QUEUE_SCHEMA_MAIN=pgboss
+AGENT_QUEUE_SCHEMA_PREFIX=pgboss_a
+AGENT_INHERITED_QUEUE_SCHEMA=pgboss
+AGENT_PUBLIC_URL_KEY=NEXT_PUBLIC_APP_URL
+AGENT_PUBLIC_URL_FORMAT='http://localhost:%s'
+AGENT_TEST_COMMAND='npm test'
+
+agent_prepare_worktree() {
+  local main="$1" wt="$2"
+  agent_clone_node_modules "$main" "$wt"
+  (
+    cd "$wt/$AGENT_APP_DIR"
+    npx prisma generate
+  )
+}
+
+agent_start_web() {
+  local wt="$1" port="$2"
+  shift 2
+  cd "$wt/$AGENT_APP_DIR"
+  exec npx next dev -p "$port" "$@"
+}
+
+agent_start_mobile() {
+  local wt="$1" port="$2"
+  shift 2
+  cd "$wt/$AGENT_MOBILE_DIR"
+  exec npx expo start --port "$port" "$@"
+}
+
+agent_dependencies_stale() {
+  agent_node_modules_stale "$1"
+}

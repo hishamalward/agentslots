@@ -1,0 +1,23 @@
+{
+  "name": "agent-slots",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runtime isolation for concurrent coding-agent worktrees",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:queue": "node scripts/queue-isolation-check.mjs",
+    "typecheck": "tsc --noEmit",
+    "check:shell": "bash -n scripts/*.sh scripts/lib/*.sh",
+    "check": "npm run check:shell && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "pg-boss": "^12.26.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.0.18"
+  }
+}
