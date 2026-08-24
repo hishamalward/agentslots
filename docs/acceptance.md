@@ -6,6 +6,18 @@ simulator liveness, pg-boss schedule ownership, provisioning, refusal paths, and
 with `npm run check`; the database-backed positive-control probe remains an explicit
 `npm run test:queue` check because it requires disposable PostgreSQL schemas.
 
+## Standalone release verification
+
+On 2026-08-23, commit `932ced6` was verified with the repository's current
+`scripts/queue-isolation-check.mjs` against one newly created disposable PostgreSQL database and
+two different schemas, `probe_a` and `probe_b`. `npm run test:queue` reported that schema B
+consumed zero of schema A's jobs, schema A consumed its own job, and printed both
+`ISOLATION PASS` and `CONTROL PASS` with exit status 0. The temporary database was removed after
+the run and its absence was verified. Connection details and the generated job identifier are
+intentionally not retained.
+
+## Original source-project acceptance
+
 This is the actual acceptance run against the machinery in this repository, on the source
 project, reproduced here rather than paraphrased. Every row records the command that was run and
 its actual output, not a judgement, except the two rows marked as judged. Paths, branch names and
