@@ -20,6 +20,8 @@ function sh(snippet: string): string {
   return execFileSync('bash', ['-c', `set -euo pipefail; . "${LIB}"; ${snippet}`], {
     encoding: 'utf8',
     cwd: REPO,
+    // Resource assertions use a fixed project identity, independent of the checkout name.
+    env: { ...process.env, AGENT_PROJECT_SLUG: 'agent_slots', AGENT_WORKTREE_PREFIX: 'fixture-' },
   }).trim();
 }
 
@@ -98,7 +100,7 @@ describe('path derivation', () => {
   it('puts worktrees beside the main root, never nested inside it', () => {
     const root = sh('agent_main_root');
     const wt = sh('agent_worktree_path feat/weekly-recap');
-    expect(wt).toBe(path.join(path.dirname(root), 'agent-slots-weekly-recap'));
+    expect(wt).toBe(path.join(path.dirname(root), 'fixture-weekly-recap'));
     expect(wt.startsWith(root + path.sep)).toBe(false);
   });
 
@@ -109,7 +111,7 @@ describe('path derivation', () => {
   it('reproduces this worktree, which was provisioned by hand to the same rules', () => {
     const root = sh('agent_main_root');
     expect(sh('agent_worktree_path feat/multi-agent-isolation'))
-      .toBe(path.join(path.dirname(root), 'agent-slots-multi-agent-isolation'));
+      .toBe(path.join(path.dirname(root), 'fixture-multi-agent-isolation'));
     expect(sh('agent_handover_path feat/multi-agent-isolation'))
       .toBe('docs/plans/multi-agent-isolation-handover.md');
   });

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,10 +16,26 @@ function source(snippet: string, env: NodeJS.ProcessEnv = {}): string {
 }
 
 describe('project configuration', () => {
-  it('derives generic defaults from the repository name', () => {
-    expect(source('agent_db_name 0')).toBe('agent_slots_dev');
-    expect(source('agent_db_name 3')).toBe('agent_slots_a3');
-    expect(source('agent_worktree_path feat/demo')).toMatch(/\/agent-slots-demo$/);
+  it.each([
+    ['sample-project', 'sample_project'],
+    ['renamedproject', 'renamedproject'],
+  ])('derives generic defaults from the repository name %s', (name, slug) => {
+    const base = realpathSync(mkdtempSync(path.join(tmpdir(), 'slots-name-')));
+    const repo = path.join(base, name);
+    try {
+      mkdirSync(repo);
+      execFileSync('git', ['init', '-q', repo]);
+      const config = path.join(base, 'empty.conf');
+      writeFileSync(config, '');
+      const env = { AGENT_REPO_ROOT: repo, AGENT_CONFIG: config,
+        AGENT_PROJECT_SLUG: '', AGENT_WORKTREE_PREFIX: '',
+        AGENT_DATABASE_MAIN: '', AGENT_DATABASE_PREFIX: '' };
+      expect(source('agent_db_name 0', env)).toBe(`${slug}_dev`);
+      expect(source('agent_db_name 3', env)).toBe(`${slug}_a3`);
+      expect(source('agent_worktree_path feat/demo', env)).toBe(path.join(base, `${name}-demo`));
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it('loads an explicit config and allows safe hook overrides', () => {
