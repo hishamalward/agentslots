@@ -1,7 +1,7 @@
 <p align="center"><img src="docs/agentslots-banner-light-asset.svg" alt="AgentSlots, local runtime isolation for concurrent coding agents" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/hishamalward/agent-slots/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/hishamalward/agent-slots?color=087e82"></a>
+  <a href="https://github.com/hishamalward/agentslots/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/hishamalward/agentslots?color=087e82"></a>
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-152f38">
   <img alt="Bash 3.2" src="https://img.shields.io/badge/Bash-3.2-152f38">
 </p>
@@ -16,6 +16,13 @@ It is one small runtime tool. It does not orchestrate agents, assign tasks, or m
 non-isolated fixture stack passed status, HTTP 200, stop, and cleanup. Full stack use inside
 AgentKeel's isolated host sandbox remains pending because the current profiles block local
 PostgreSQL or process inspection. See [acceptance evidence](docs/acceptance.md).
+
+## Demo
+
+![Two stack slots running independently, then one stopped while the other keeps running](docs/demo.gif)
+
+Recorded v0.1 demo: the original two-slot lifecycle against a disposable local fixture.
+It predates the current installer and does not demonstrate AgentKeel sandbox support.
 
 ## Start small, add a stack when needed
 
@@ -98,9 +105,6 @@ in [queue isolation](docs/queue-isolation.md). The probe needs disposable Postgr
 - [Acceptance evidence](docs/acceptance.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
-
-The [recorded v0.1 demo](docs/demo.gif) shows the original two-slot lifecycle. It predates the
-current setup flow and is kept as historical output rather than a current installation guide.
 
 ## License
 

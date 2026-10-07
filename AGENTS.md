@@ -18,7 +18,8 @@ not launch or coordinate agents, define their plans, or enforce project permissi
 
 ## Documentation
 
-- Display name: AgentSlots. Keep the existing repository and package name `agent-slots`.
+- Display name: AgentSlots. Repository and package name: `agentslots`.
+  Existing `.agent-slots.conf` and `~/.agent-slots` paths stay compatible.
 - Product documentation is Markdown. Keep the README concise and link to focused guides.
 - New work may point to an existing project state document with `--state`; AgentSlots does not
   generate plans, handovers, or task records.

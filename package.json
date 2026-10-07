@@ -1,16 +1,16 @@
 {
-  "name": "agent-slots",
+  "name": "agentslots",
   "version": "0.2.0",
   "private": true,
   "description": "Runtime isolation for concurrent coding-agent worktrees",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hishamalward/agent-slots.git"
+    "url": "git+https://github.com/hishamalward/agentslots.git"
   },
-  "homepage": "https://github.com/hishamalward/agent-slots#readme",
+  "homepage": "https://github.com/hishamalward/agentslots#readme",
   "bugs": {
-    "url": "https://github.com/hishamalward/agent-slots/issues"
+    "url": "https://github.com/hishamalward/agentslots/issues"
   },
   "engines": {
     "node": ">=22.12.0"

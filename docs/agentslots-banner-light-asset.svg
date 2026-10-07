@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 300" role="img" aria-labelledby="title desc">
   <title id="title">AgentSlots</title>
   <desc id="desc">Local runtime isolation for concurrent coding agents.</desc>
-  <rect width="1280" height="360" rx="24" fill="#fbfaf7"/>
+  <rect width="1280" height="300" rx="24" fill="#fbfaf7"/>
   <g transform="translate(568 30) scale(1.2)">
     <g fill="none" stroke="#087e82" stroke-linecap="round" stroke-width="4.8">
       <path d="M18 26h84"/><path d="M18 60h84"/><path d="M18 94h84"/>
@@ -14,8 +14,4 @@
   </g>
   <text x="640" y="215" text-anchor="middle" fill="#152f38" font-family="ui-sans-serif,-apple-system,'Segoe UI',sans-serif" font-size="70" font-weight="700" letter-spacing="-2">Agent<tspan fill="#087e82">Slots</tspan></text>
   <text x="640" y="260" text-anchor="middle" fill="#43535a" font-family="ui-sans-serif,-apple-system,'Segoe UI',sans-serif" font-size="24">Local runtime isolation for concurrent coding agents</text>
-  <g font-family="ui-sans-serif,-apple-system,'Segoe UI',sans-serif" font-size="14" font-weight="600" text-anchor="middle">
-    <g fill="#ffffff" stroke="#d8e1e1"><rect x="451" y="294" width="104" height="30" rx="15"/><rect x="567" y="294" width="146" height="30" rx="15"/><rect x="725" y="294" width="104" height="30" rx="15"/></g>
-    <text x="503" y="314" fill="#152f38">macOS</text><text x="640" y="314" fill="#152f38">Bash 3.2</text><text x="777" y="314" fill="#152f38">Code first, stack when needed</text>
-  </g>
 </svg>
