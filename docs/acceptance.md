@@ -2,7 +2,8 @@
 
 ## Current 0.2.0 candidate
 
-As of 2026-10-07:
+Verified 2026-10-07. The full automated suite ran on clean commit
+`c5a7762a80fac29b10f56bc708ab18910174d486`:
 
 - `npm run check` passes 100 tests.
 - Real Codex and Claude Code invocations pass for code-tier work with normal trust and installed
@@ -22,7 +23,7 @@ As of 2026-10-07:
 
 The remaining failures sit at the host sandbox boundary: local-network access and trusted process
 inspection/cleanup need a host-level route. Do not disable the sandbox or bypass AgentSlots'
-ownership checks. The exact final commit SHA will be added after the candidate is committed.
+ownership checks. Later documentation-only evidence updates do not change the tested runtime.
 
 ## Historical v0.1 evidence
 
