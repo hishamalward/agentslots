@@ -1,6 +1,6 @@
 {
   "name": "agent-slots",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Runtime isolation for concurrent coding-agent worktrees",
   "license": "MIT",
@@ -19,7 +19,7 @@
     "test": "vitest run",
     "test:queue": "node scripts/queue-isolation-check.mjs",
     "typecheck": "tsc --noEmit",
-    "check:shell": "bash -n scripts/*.sh scripts/lib/*.sh && shellcheck -s bash -S warning scripts/*.sh scripts/lib/*.sh",
+    "check:shell": "for file in scripts/*.sh scripts/lib/*.sh; do bash -n \"$file\" || exit; done && shellcheck -s bash -S warning scripts/*.sh scripts/lib/*.sh",
     "check": "npm run check:shell && npm run typecheck && npm test"
   },
   "devDependencies": {

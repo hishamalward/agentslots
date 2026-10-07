@@ -13,6 +13,8 @@
 # AGENT_CONFIG, may override these values and the project hooks defined at the end of this file.
 # Nothing here names the repository this code originally came from.
 AGENT_MAIN_BRANCH="${AGENT_MAIN_BRANCH:-main}"
+AGENT_REPO_ROOT="${AGENT_REPO_ROOT:-}"
+_AGENT_SLOT_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 AGENT_PROJECT_SLUG="${AGENT_PROJECT_SLUG:-}"
 AGENT_DATABASE_MAIN="${AGENT_DATABASE_MAIN:-}"
 AGENT_DATABASE_PREFIX="${AGENT_DATABASE_PREFIX:-}"
@@ -96,12 +98,26 @@ agent_metro_port() { printf '%s\n' "$(( AGENT_METRO_PORT_BASE + AGENT_PORT_STEP 
 
 # --- paths ------------------------------------------------------------------
 
-# agent_main_root: absolute path of the MAIN worktree, always the first entry of
-# `git worktree list`. Deriving from it means a script run inside a linked worktree still
-# resolves siblings correctly.
-agent_main_root() {
-  git worktree list --porcelain | sed -n '1s/^worktree //p'
+# Canonical shared repository: explicit input, opened-clone association, or linked Git root.
+agent_identity() {
+  command -v python3 >/dev/null 2>&1 || { echo "agent-slots: python3 is required for workspace identity" >&2; return 1; }
+  AGENT_REPO_ROOT="$AGENT_REPO_ROOT" python3 -I "$_AGENT_SLOT_LIB_DIR/agent-ownership.py" "$@"
 }
+
+agent_main_root() {
+  local current
+  current=$(git rev-parse --show-toplevel) || return 1
+  agent_identity root "$current"
+}
+
+agent_workspaces() { agent_identity workspaces "$(agent_main_root)"; }
+agent_check_ownership() { agent_identity check "$1"; }
+agent_assert_workspace_owned() { agent_check_ownership "$@"; }
+agent_workspace_ownership() { agent_identity ownership "$1"; }
+agent_stop_port() { agent_identity stop-port "$1" "$2"; }
+
+# Only linked worktrees can be deleted here. AgentKeel clones use human import/release.
+agent_workspace_is_clone() { [ -d "$1/.git" ] && [ "$1" != "$(agent_main_root)" ]; }
 
 # agent_worktree_path <branch>: a SIBLING of the main worktree, never nested (spec 4.8).
 agent_worktree_path() {
@@ -180,7 +196,7 @@ agent_next_free_slot() {
 # A stack tier is exactly a worktree whose configured env file carries the slot key.
 agent_tier_of_worktree() {
   local env_file
-  if [ "$1" = "$(agent_main_root)" ]; then printf 'main\n'; return 0; fi
+  if [ "$1" = "$(agent_main_root)" ] && [ "$(git -C "$1" symbolic-ref -q --short HEAD 2>/dev/null)" = "$AGENT_MAIN_BRANCH" ]; then printf 'main\n'; return 0; fi
   env_file=$(agent_env_path "$1")
   if [ -f "$env_file" ] && grep -q "^${AGENT_SLOT_KEY}=" "$env_file"; then
     printf 'stack\n'
@@ -194,7 +210,7 @@ agent_tier_of_worktree() {
 # tree and the only schedule owner.
 agent_slot_of_worktree() {
   local env_file
-  if [ "$1" = "$(agent_main_root)" ]; then printf '0\n'; return 0; fi
+  if [ "$1" = "$(agent_main_root)" ] && [ "$(git -C "$1" symbolic-ref -q --short HEAD 2>/dev/null)" = "$AGENT_MAIN_BRANCH" ]; then printf '0\n'; return 0; fi
   local v
   env_file=$(agent_env_path "$1")
   if [ -f "$env_file" ]; then
@@ -212,17 +228,19 @@ agent_slot_of_worktree() {
 }
 
 agent_worktree_for_slot() {
-  local main cand slot="$1"
-  main=$(agent_main_root)
+  local main cand result="" workspaces slot="$1"
+  main=$(agent_main_root) || return 1
+  workspaces=$(agent_workspaces) || return 1
   while IFS= read -r cand; do
     [ -d "$cand" ] || continue
     [ "$cand" != "$main" ] || continue
     if [ "$(agent_slot_of_worktree "$cand" 2>/dev/null || true)" = "$slot" ]; then
-      printf '%s\n' "$cand"
-      return 0
+      [ -z "$result" ] || { echo "agent-slots: multiple workspaces claim slot $slot; ownership ambiguous" >&2; return 1; }
+      result="$cand"
     fi
-  done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}')
-  return 1
+  done < <(printf '%s\n' "$workspaces")
+  [ -n "$result" ] || return 1
+  printf '%s\n' "$result"
 }
 
 # agent_node_modules_stale <dir>: true when package-lock.json is newer than the .package-lock.json
@@ -368,7 +386,7 @@ _agent_config_path="${AGENT_CONFIG:-}"
 if [ -z "$_agent_config_path" ]; then
   # Resource formulas must not drift when a feature branch edits its copy of the config. The
   # primary worktree is the one authority every linked worktree reads.
-  _agent_current_root=$(agent_main_root 2>/dev/null || true)
+  _agent_current_root=$(agent_main_root) || { return 1 2>/dev/null || exit 1; }
   [ -z "$_agent_current_root" ] || _agent_config_path="$_agent_current_root/.agent-slots.conf"
   [ -f "$_agent_config_path" ] || _agent_config_path=""
 elif [ ! -f "$_agent_config_path" ]; then
@@ -379,7 +397,7 @@ fi
 [ -z "$_agent_config_path" ] || . "$_agent_config_path"
 
 if [ -z "$AGENT_SIM_LOCK" ]; then
-  AGENT_SIM_LOCK="$HOME/.agent-slots/$(agent_project_slug).sim.lock"
+  AGENT_SIM_LOCK="$HOME/.agent-slots/simulator.lock"
 fi
 
 unset _agent_config_path _agent_current_root

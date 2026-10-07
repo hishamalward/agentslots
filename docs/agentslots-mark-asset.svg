@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title desc">
+  <title id="title">AgentSlots mark</title>
+  <desc id="desc">Three independent lanes hold work blocks in separate slots.</desc>
+  <g fill="none" stroke="#087e82" stroke-linecap="round" stroke-width="6">
+    <path d="M18 26h84"/><path d="M18 60h84"/><path d="M18 94h84"/>
+  </g>
+  <g fill="#152f38">
+    <rect x="29" y="15" width="20" height="22" rx="4"/>
+    <rect x="65" y="49" width="25" height="22" rx="4"/>
+    <rect x="39" y="83" width="20" height="22" rx="4"/>
+  </g>
+</svg>

@@ -1,7 +1,8 @@
 # Development environment
 
-This repository's own validation requires macOS, the system Bash 3.2, Node.js 22.12 or newer, npm,
-and ShellCheck (`brew install shellcheck`). Run:
+The installer and runtime workspace-ownership checks require Python 3.10 or newer. This repository's
+own checks require macOS, system Bash 3.2, Node.js 22.12 or newer, npm, and ShellCheck
+(`brew install shellcheck`). Run:
 
 ```bash
 npm ci

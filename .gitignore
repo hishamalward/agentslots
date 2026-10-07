@@ -3,3 +3,4 @@
 node_modules/
 .agent
 docs/post-draft.md
+__pycache__/

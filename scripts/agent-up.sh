@@ -16,20 +16,23 @@ set -Eeuo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+. "$HERE/lib/agent-lock.sh"
+ORIGINAL_ARGS=("$@")
 agent_config_validate
 agent_require_commands git
 
 usage() {
   cat >&2 <<'EOF'
-usage: agent-up.sh <branch> [--stack] [--handover <path>] [--spec <path>]
+usage: agent-up.sh <branch> [--stack] [--workspace <path>] [--state <path>] [--handover <path>] [--spec <path>]
 
   <branch>      the branch to work on. Created from the configured main branch if absent.
   --stack       also claim a slot: a database, ports and the configured env file. Run it on
                 an existing code-tier worktree to upgrade in place (spec 4.3).
-  --handover    record an explicit handover path in .agent. Defaults to the path
-                derived from the stream slug (spec 4.7). Use this for existing
-                handovers that predate the naming convention.
-  --spec        record a design-spec path in .agent. Optional.
+  --workspace   attach a stack to an existing owned workspace, including an independent clone.
+                Requires --stack and AGENT_REPO_ROOT naming the shared configuration checkout.
+  --state       record an existing repo-relative state page in .agent. No documents are created.
+  --handover    compatibility pointer to an existing handover. Optional.
+  --spec        compatibility pointer to an existing design spec. Optional.
 EOF
   exit 2
 }
@@ -38,11 +41,15 @@ fail() { echo "agent-up: $*" >&2; exit 1; }
 
 BRANCH=""
 HANDOVER=""
+STATE=""
+WORKSPACE=""
 SPEC=""
 STACK=0
 UPGRADE=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --workspace) [ $# -ge 2 ] || usage; WORKSPACE="$2"; shift 2 ;;
+    --state) [ $# -ge 2 ] || usage; STATE="$2"; shift 2 ;;
     --handover) [ $# -ge 2 ] || usage; HANDOVER="$2"; shift 2 ;;
     --spec)     [ $# -ge 2 ] || usage; SPEC="$2";     shift 2 ;;
     --stack)    STACK=1; shift ;;
@@ -56,12 +63,23 @@ done
 git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || fail "invalid branch name: $BRANCH"
 
 MAIN=$(agent_main_root)
-WT=$(agent_worktree_path "$BRANCH")
+if [ -n "$WORKSPACE" ]; then
+  [ "$STACK" = "1" ] || fail "--workspace requires --stack"
+  [ -n "${AGENT_REPO_ROOT:-}" ] || fail "--workspace requires AGENT_REPO_ROOT"
+  WT=$(cd "$WORKSPACE" 2>/dev/null && pwd -P) || fail "workspace does not exist: $WORKSPACE"
+  [ "$WT" != "$MAIN" ] || fail "--workspace cannot attach the canonical shared checkout; use an owned task workspace"
+else
+  WT=$(agent_worktree_path "$BRANCH")
+fi
+# One lifecycle lock covers preflight, slot selection and setup against concurrent cleanup.
+agent_repo_lock "${ORIGINAL_ARGS[@]}"
 MAIN_BRANCH=$(agent_main_branch)
 ENV_PATH=$(agent_env_path "$WT")
-[ -n "$HANDOVER" ] || HANDOVER=$(agent_handover_path "$BRANCH")
-agent_relative_path_valid "$HANDOVER" || fail "handover path must stay inside the worktree: $HANDOVER"
-[ -z "$SPEC" ] || agent_relative_path_valid "$SPEC" || fail "spec path must stay inside the worktree: $SPEC"
+for pointer in "$STATE" "$HANDOVER" "$SPEC"; do
+  [ -n "$pointer" ] || continue
+  agent_relative_path_valid "$pointer" || fail "document pointer must stay inside the repo: $pointer"
+  [ -f "$MAIN/$pointer" ] || [ -f "$WT/$pointer" ] || fail "document pointer does not exist: $pointer"
+done
 
 git -C "$MAIN" show-ref --verify --quiet "refs/heads/$MAIN_BRANCH" \
   || fail "main branch '$MAIN_BRANCH' does not exist. Set AGENT_MAIN_BRANCH in .agent-slots.conf."
@@ -78,6 +96,7 @@ if [ -e "$WT" ]; then
     || fail "$WT exists but is not the expected Git worktree. Refusing to upgrade it."
   [ "$(git -C "$WT" symbolic-ref -q --short HEAD 2>/dev/null || true)" = "$BRANCH" ] \
     || fail "$WT is not checked out on $BRANCH. Refusing to upgrade it."
+  agent_check_ownership "$WT" "upgrade workspace" || fail "workspace is not owned by this task/session: $WT"
   tier=$(agent_tier_of_worktree "$WT")
   [ "$tier" = "code" ] || fail "$WT already exists and is $tier tier, not code. Nothing to upgrade."
   UPGRADE=1
@@ -145,7 +164,7 @@ else
   echo "agent-up: provisioning code tier for $BRANCH at $WT"
 fi
 
-# The preflight above is atomic: nothing touches disk until every check passes. Past this point
+# Provisioning holds the repository lock throughout preflight and setup. Past this point
 # it is not, because `git worktree add` succeeding is itself a disk change, and any later step
 # failing under `set -Eeuo pipefail` (the .agent write or a project setup-hook error) would
 # otherwise leave a
@@ -154,11 +173,15 @@ fi
 # back. CREATED_BRANCH becomes 1 only after this process creates the ref, so a pre-existing or
 # concurrently-created branch is never destroyed.
 CREATED_BRANCH=0
-CREATED_WT=0
+STAGING=""
+OWNED_GIT_POINTER=""
 CREATED_DB=0
 ENV_WRITTEN=0
 ENV_HAD_PRIOR=0
 ENV_BACKUP=""
+MARKER_WRITTEN=0
+MARKER_BACKUP=""
+MARKER_HAD_PRIOR=0
 
 # rollback() must be safe to call more than once (it is, on the two post-trap `fail` sites below,
 # called explicitly and then the script still exits): every step here already guards on its flag
@@ -167,8 +190,8 @@ ENV_BACKUP=""
 rollback() {
   echo "agent-up: provisioning failed, rolling back so no half-provisioned worktree is left" >&2
   [ "$CREATED_DB" = "1" ] && dropdb -U "$AGENT_PG_USER" "$DB" 2>/dev/null || true
-  # The .env write happens before the trap can undo it via CREATED_WT on the upgrade path, where
-  # the worktree is deliberately preserved (spec 4.3): a half-written .env would otherwise leave a
+  # On the upgrade path, the existing worktree is deliberately preserved; an env write
+  # must still be rolled back. A half-written .env would otherwise leave a
   # worktree that reads as stack tier (agent_tier_of_worktree keys off AGENT_SLOT alone) with no
   # database behind it, or worse, aliasing another agent's slot after a claim race. Restore
   # whatever was there before, or remove the file if nothing was.
@@ -180,7 +203,24 @@ rollback() {
     fi
   fi
   [ -z "$ENV_BACKUP" ] || rm -f "$ENV_BACKUP" 2>/dev/null || true
-  [ "$CREATED_WT" = "1" ] && git -C "$MAIN" worktree remove --force "$WT" 2>/dev/null || true
+  if [ "$MARKER_WRITTEN" = "1" ]; then
+    if [ "$MARKER_HAD_PRIOR" = "1" ]; then
+      cp "$MARKER_BACKUP" "$WT/.agent" 2>/dev/null || true
+    else
+      rm -f "$WT/.agent" 2>/dev/null || true
+    fi
+  fi
+  [ -z "$MARKER_BACKUP" ] || rm -f "$MARKER_BACKUP" 2>/dev/null || true
+  # A failed move can have moved the directory already. Its exact Git administration pointer
+  # proves ownership; merely finding the expected path is never permission to remove it.
+  if [ -n "$OWNED_GIT_POINTER" ] && [ -f "$WT/.git" ] && [ "$(cat "$WT/.git")" = "$OWNED_GIT_POINTER" ]; then
+    git -C "$MAIN" worktree remove --force "$WT" 2>/dev/null || true
+  fi
+  if [ -n "$STAGING" ] && [ -d "$STAGING" ]; then
+    git -C "$MAIN" worktree remove --force "$STAGING" 2>/dev/null || true
+    # mktemp created this private directory, including when Git failed partway through add.
+    rm -rf "$STAGING" 2>/dev/null || true
+  fi
   [ "$CREATED_BRANCH" = "1" ] && git -C "$MAIN" branch -D "$BRANCH" 2>/dev/null || true
 }
 
@@ -189,9 +229,9 @@ rollback() {
 trap rollback ERR
 
 if [ "$UPGRADE" = "0" ]; then
-  CREATED_WT=1
+  STAGING=$(mktemp -d "$(dirname "$WT")/.agent-worktree.XXXXXX")
   if git -C "$MAIN" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-    git -C "$MAIN" worktree add "$WT" "$BRANCH"
+    git -C "$MAIN" worktree add "$STAGING" "$BRANCH"
   else
     echo "agent-up: branch $BRANCH does not exist, creating it from $MAIN_BRANCH"
     # Create the ref as its own atomic operation, and mark ownership only after that succeeds.
@@ -200,14 +240,14 @@ if [ "$UPGRADE" = "0" ]; then
     # ref even though this process never created it.
     git -C "$MAIN" branch "$BRANCH" "$MAIN_BRANCH"
     CREATED_BRANCH=1
-    git -C "$MAIN" worktree add "$WT" "$BRANCH"
+    git -C "$MAIN" worktree add "$STAGING" "$BRANCH"
   fi
+  OWNED_GIT_POINTER=$(cat "$STAGING/.git")
+  git -C "$MAIN" worktree move "$STAGING" "$WT"
 fi
 
 if [ "$UPGRADE" = "0" ]; then
-  # The marker records INTENT: which stream this worktree serves and which handover governs it.
-  # Stream names do not derive from branch names for the 21 legacy handovers, which is the whole
-  # reason this pointer exists.
+  # Optional document pointers describe intent; runtime provisioning never authors documents.
   {
     echo '# Agent worktree marker (spec 4.7). Gitignored, per-worktree, dies with the worktree.'
     echo '# Written by scripts/agent-up.sh.'
@@ -217,53 +257,20 @@ if [ "$UPGRADE" = "0" ]; then
     echo '# agent-status.sh derives tier and slot rather than trusting this file (principle 2).'
     echo ''
     echo "STREAM=$(agent_stream_slug "$BRANCH")"
-    echo "HANDOVER=$HANDOVER"
+    [ -z "$STATE" ] || echo "STATE=$STATE"
+    [ -z "$HANDOVER" ] || echo "HANDOVER=$HANDOVER"
     echo "BRANCH=$BRANCH"
+    echo "REPO=$MAIN"
     echo 'TIER=code'
     [ -z "$SPEC" ] || echo "SPEC=$SPEC"
   } > "$WT/.agent"
 
-  if [ ! -e "$WT/$HANDOVER" ]; then
-    mkdir -p "$(dirname "$WT/$HANDOVER")"
-    {
-      echo "# $(agent_stream_slug "$BRANCH"): handover"
-      echo ''
-      echo "Goal: describe the outcome for this stream."
-      echo "Status: in progress"
-      [ -z "$SPEC" ] || echo "Spec: $SPEC"
-      echo ''
-      echo '## Current state in code'
-      echo ''
-      echo '- Nothing completed yet.'
-      echo ''
-      echo '## What will bite'
-      echo ''
-      echo '- Add project-specific hazards here.'
-      echo ''
-      echo '## Not built, in order'
-      echo ''
-      echo '- Define the first implementation step.'
-      echo ''
-      echo '## In flight'
-      echo ''
-      echo '- Nothing yet.'
-      echo ''
-      echo '## Blocked'
-      echo ''
-      echo '- Nothing.'
-      echo ''
-      echo '## Open questions'
-      echo ''
-      echo '- None.'
-      echo ''
-      echo '## Verification protocol'
-      echo ''
-      echo '- Run the project test command.'
-    } > "$WT/$HANDOVER"
-    echo "agent-up: created handover template at $HANDOVER"
-  fi
-
   echo "agent-up: running the project worktree-setup hook"
+  agent_prepare_worktree "$MAIN" "$WT"
+elif [ -n "$WORKSPACE" ] && agent_workspace_is_clone "$WT"; then
+  # An opened independent clone has not gone through code-tier worktree preparation.
+  # Prepare its dependencies/client too, while preserving the externally owned clone on failure.
+  echo "agent-up: preparing the attached clone with the project setup hook"
   agent_prepare_worktree "$MAIN" "$WT"
 fi
 
@@ -347,18 +354,35 @@ if [ "$STACK" = "1" ]; then
     [ "$left" = "0" ] || { rollback; fail "the inherited queue schema survived in $DB. Refusing to leave a slot that can fire cron."; }
   fi
 
-  # Keep the .agent echo honest after an upgrade. Guarded, not fatal: by this point the slot is
-  # fully and correctly provisioned (database cloned, inherited schema dropped, env written), and
-  # .agent's TIER is not an authority, agent_tier_of_worktree derives tier solely from the slot key
-  # in the configured env and never opens .agent (see the header this script writes into it, "Intent
-  # only"). A failure here can only make the echo lag reality, not make the slot behave wrong, so
-  # rolling back a correct clone and .env write to fix a label is the same spurious-rollback shape
-  # line 326 below exists to avoid. Warn instead.
-  if [ -f "$WT/.agent" ]; then
-    if ! sed -i '' 's/^TIER=code$/TIER=stack/' "$WT/.agent" 2>/dev/null; then
-      echo "agent-up: WARNING, could not refresh the .agent TIER echo. Cosmetic only: tier is derived" >&2
-      echo "agent-up:          from $ENV_PATH, not from .agent. The slot is provisioned correctly." >&2
+  # Persist canonical repo association for an attached clone, without a new registry.
+  # Preserve previous marker bytes on rollback, just as we preserve the existing env.
+  if [ "$UPGRADE" = "1" ]; then
+    if [ -f "$WT/.agent" ]; then
+      MARKER_HAD_PRIOR=1
+      MARKER_BACKUP=$(mktemp "${TMPDIR:-/tmp}/agent-up-marker-backup.XXXXXX")
+      cp "$WT/.agent" "$MARKER_BACKUP"
     fi
+    MARKER_WRITTEN=1
+    if [ "$MARKER_HAD_PRIOR" = "1" ]; then
+      awk -v state="$STATE" -v handover="$HANDOVER" -v spec="$SPEC" '
+        /^(REPO|TIER)=/ { next }
+        /^STATE=/ && state != "" { next }
+        /^HANDOVER=/ && handover != "" { next }
+        /^SPEC=/ && spec != "" { next }
+        { print }
+      ' "$MARKER_BACKUP" > "$WT/.agent"
+    else
+      printf 'BRANCH=%s\n' "$BRANCH" > "$WT/.agent"
+    fi
+    {
+      printf 'REPO=%s\nTIER=stack\n' "$MAIN"
+      [ -z "$STATE" ] || printf 'STATE=%s\n' "$STATE"
+      [ -z "$HANDOVER" ] || printf 'HANDOVER=%s\n' "$HANDOVER"
+      [ -z "$SPEC" ] || printf 'SPEC=%s\n' "$SPEC"
+    } >> "$WT/.agent"
+  else
+    # The just-created marker belongs to this worktree and rollback removes both together.
+    sed -i '' 's/^TIER=code$/TIER=stack/' "$WT/.agent"
   fi
 
   # Success: the pre-upgrade .env is no longer needed. rollback() would otherwise never clean it
@@ -370,6 +394,7 @@ if [ "$STACK" = "1" ]; then
   [ -z "$ENV_BACKUP" ] || rm -f "$ENV_BACKUP" 2>/dev/null || true
 fi
 
+[ -z "$MARKER_BACKUP" ] || rm -f "$MARKER_BACKUP" 2>/dev/null || true
 trap - ERR
 
 if [ "$STACK" = "1" ]; then
@@ -378,14 +403,12 @@ if [ "$STACK" = "1" ]; then
 agent-up: stack tier ready.
   worktree    $WT
   branch      $BRANCH
-  handover    $HANDOVER
   slot        $SLOT
   database    $DB
   queue       $SCHEMA$([ -n "$AGENT_INHERITED_QUEUE_SCHEMA" ] && printf ' (inherited %s removed)' "$AGENT_INHERITED_QUEUE_SCHEMA")
   web port    $WEB_PORT
   Metro port  $METRO_PORT
 
-Read the handover before your first write (spec 4.9 item 9).
 Start the server: scripts/agent-dev.sh (uses the project hook in .agent-slots.conf)
 Stop when you pause, down when you merge: scripts/agent-stop.sh $SLOT / scripts/agent-down.sh $SLOT
 EOF
@@ -395,10 +418,8 @@ else
 agent-up: code tier ready.
   worktree  $WT
   branch    $BRANCH
-  handover  $HANDOVER
   tier      code (no slot, no database, no ports)
 
-Read the handover before your first write (spec 4.9 item 9).
 Tests run here now: $AGENT_TEST_COMMAND
 To boot a server, upgrade in place: scripts/agent-up.sh $BRANCH --stack
 EOF

@@ -11,9 +11,10 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+. "$HERE/lib/agent-lock.sh"
+ORIGINAL_ARGS=("$@")
 agent_config_validate
 agent_require_commands git lsof psql dropdb
-agent_postgres_reachable || { echo "agent-reap: PostgreSQL is unreachable for role $AGENT_PG_USER" >&2; exit 1; }
 
 EXECUTE=0
 case "${1:-}" in
@@ -22,7 +23,11 @@ case "${1:-}" in
   *) echo "usage: agent-reap.sh [--yes]" >&2; exit 2 ;;
 esac
 
+agent_repo_lock "${ORIGINAL_ARGS[@]}"
+agent_postgres_reachable || { echo "agent-reap: PostgreSQL is unreachable for role $AGENT_PG_USER" >&2; exit 1; }
+
 MAIN=$(agent_main_root)
+WORKSPACES=$(agent_workspaces) || exit 1
 MAIN_BRANCH=$(agent_main_branch)
 git -C "$MAIN" show-ref --verify --quiet "refs/heads/$MAIN_BRANCH" \
   || { echo "agent-reap: configured main branch does not exist: $MAIN_BRANCH" >&2; exit 1; }
@@ -60,6 +65,15 @@ echo ''
 while IFS= read -r wt; do
   [ "$wt" != "$MAIN" ] || continue
   [ -d "$wt" ] || continue
+
+  if agent_workspace_is_clone "$wt"; then
+    printf '  RETAINED %s: independent clone, human AgentKeel import/release only\n' "$wt"
+    continue
+  fi
+  if ! agent_check_ownership "$wt" "reap workspace"; then
+    refuse "$wt is foreign or its ownership is unknown"
+    continue
+  fi
 
   branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')
   [ -n "$branch" ] && [ "$branch" != "HEAD" ] || continue
@@ -152,12 +166,12 @@ while IFS= read -r wt; do
       printf '           would run: git worktree remove %s\n' "$wt"
     fi
   fi
-done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}')
+done < <(printf '%s\n' "$WORKSPACES")
 
 # --- orphan class 2: a slot database with no worktree -----------------------
 claimed=$(while IFS= read -r wt; do
   [ -d "$wt" ] && agent_slot_of_worktree "$wt" 2>/dev/null || true
-done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}') | tr '\n' ' ')
+done < <(printf '%s\n' "$WORKSPACES") | tr '\n' ' ')
 
 n=1
 while [ "$n" -le "$AGENT_SLOT_MAX" ]; do
@@ -173,6 +187,11 @@ while [ "$n" -le "$AGENT_SLOT_MAX" ]; do
          "select pg_size_pretty(pg_database_size('$db'))" 2>/dev/null || echo 'unknown')
   printf '  ORPHAN   database %s\n' "$db"
   printf '           slot %s has no worktree, %s reclaimable\n' "$n" "$size"
+  if ! agent_check_ownership "$db" "reap database"; then
+    refuse "database $db ownership is foreign or unknown"
+    n=$((n + 1))
+    continue
+  fi
   if act; then
     if dropdb -U "$AGENT_PG_USER" "$db"; then
       REAPED=$((REAPED + 1))
@@ -200,24 +219,12 @@ while [ "$n" -le "$AGENT_SLOT_MAX" ]; do
   n=$((n + 1))
 done
 
-# --- orphan class 4: a simulator lock whose holder is dead ------------------
+# Simulator teardown is serialized by sim-lock.sh; never unlink a shared claim here.
 SIM_LOCK="$AGENT_SIM_LOCK"
-if [ -f "$SIM_LOCK" ]; then
-  agent_require_commands xcrun
-  lpid=$(sed -n '/^PID=/{s///p;q;}' "$SIM_LOCK" 2>/dev/null || true)
-  if ! agent_sim_lock_alive "$SIM_LOCK"; then
-    FOUND=$((FOUND + 1))
-    printf '  ORPHAN   simulator lock has a dead owner or stopped device (recorded pid %s)\n' "$lpid"
-    if act; then
-      if rm -f "$SIM_LOCK" 2>/dev/null; then
-        REAPED=$((REAPED + 1))
-      else
-        fail "simulator lock $SIM_LOCK: rm failed. Remove it by hand."
-      fi
-    else
-      printf '           would run: rm %s\n' "$SIM_LOCK"
-    fi
-  fi
+if [ -f "$SIM_LOCK" ] && ! agent_sim_lock_alive "$SIM_LOCK"; then
+  FOUND=$((FOUND + 1))
+  printf '  ORPHAN   stale simulator lock, inspect with sim-lock.sh status\n'
+  refuse "simulator claim needs an owning-session release or a human review; not removed by reaper"
 fi
 
 # Printed unconditionally, even after a destructive step failed partway through: the operator

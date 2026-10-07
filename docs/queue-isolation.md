@@ -11,7 +11,7 @@ names are illustrative:
  export function getBoss(): PgBoss {
    if (!_boss) {
 -    _boss = new PgBoss(process.env.DATABASE_URL!);
-+    // PGBOSS_SCHEMA gives each agent slot its own queue schema (spec 4.4.1). Unset means
++    // PGBOSS_SCHEMA gives each agent slot its own queue schema. Unset means
 +    // 'pgboss', pg-boss's own default, so prod and the main tree are unchanged.
 +    _boss = new PgBoss({
 +      connectionString: process.env.DATABASE_URL!,
@@ -24,7 +24,7 @@ names are illustrative:
      await boss.work('cleanup', cleanupHandler);
      await boss.work('report', reportHandler);
 
-+    // Only slot 0 owns the cron schedules (spec 4.4.2). Unset means '0' means owner, so prod,
++    // Only slot 0 owns the cron schedules. Unset means '0' means owner, so prod,
 +    // CI and the main tree are unchanged. A non-owner slot still creates queues and works jobs
 +    // above; it just never writes a schedule row, which is why a cloned database has its
 +    // inherited pgboss schema dropped at provision time.
@@ -67,22 +67,34 @@ behavior.
 
 ## Executable isolation probe
 
-Install this repository's dependencies, point two pg-boss clients at different schemas, and run:
+The probe checks both directions: schema B cannot fetch A's job, and schema A can fetch its own.
+Use a disposable database and schema names. `DATABASE_URL_B` defaults to `DATABASE_URL_A`, making
+the same-database, different-schema run the load-bearing one.
 
-```bash
+From an AgentSlots source checkout, install its development dependencies and run:
+
+```sh
 DATABASE_URL_A='postgresql://localhost/project_dev' \
 PGBOSS_SCHEMA_A=pgboss_probe_a \
 PGBOSS_SCHEMA_B=pgboss_probe_b \
 npm run test:queue
 ```
 
-`DATABASE_URL_B` defaults to `DATABASE_URL_A`. That same-database run is the load-bearing one: the
-probe enqueues in A, proves B fetches zero jobs, then proves A fetches exactly that job. A second
-run may set `DATABASE_URL_B` to a different disposable database, but database separation alone
-does not prove the schema option works.
+From a project with the pinned runtime installed, run the vendored probe from the project root.
+It uses the adopter's installed `pg-boss` dependency; the vendored runtime has no npm package of its
+own:
 
-Use disposable schema names. pg-boss initializes them, and its normal `stop()` does not remove
-them; drop the probe schemas after the check if the database is long-lived.
+```sh
+DATABASE_URL_A='postgresql://localhost/project_dev' \
+PGBOSS_SCHEMA_A=pgboss_probe_a \
+PGBOSS_SCHEMA_B=pgboss_probe_b \
+node .agents/agentslots/scripts/queue-isolation-check.mjs
+```
+
+A second run may set `DATABASE_URL_B` to a different disposable database, but database separation
+alone does not prove that schema isolation works. pg-boss initializes the probe schemas, and its
+normal `stop()` does not remove them; drop the probe schemas after the check if the database is
+long-lived.
 
 ## The inverted-polarity trap
 

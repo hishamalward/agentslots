@@ -6,10 +6,14 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/lib/agent-slot.sh"
+. "$HERE/lib/agent-lock.sh"
+ORIGINAL_ARGS=("$@")
 agent_config_validate
 
 LOCK="$AGENT_SIM_LOCK"
 LOCK_DIR=$(dirname "$LOCK")
+REPO=$(agent_main_root)
+WORKSPACE=$(git rev-parse --show-toplevel)
 
 usage() { echo "usage: sim-lock.sh <acquire|release|status> [slot] [--force]" >&2; exit 2; }
 
@@ -42,9 +46,12 @@ PID_TO_RECORD="${AGENT_SIM_PID:-$PPID}"
 
 # The owner process and device must both still exist after acquisition completes. During the
 # claim-before-boot window the UDID is empty, so the live owner process alone protects the claim.
-holder_alive() {
-  agent_sim_lock_alive "$LOCK"
-}
+holder_alive() { agent_sim_lock_alive "$LOCK"; }
+claim_is_ours() { [ "$(lock_get CLAIM)" = "$CLAIM" ]; }
+# Serialize stale checks, claims, device work, updates and release on the host-wide lock.
+# Keep the mutex file forever: unlinking it would let a second inode acquire a second lock.
+mkdir -p "$LOCK_DIR"
+agent_lock_enter "$LOCK.mutex" "${ORIGINAL_ARGS[@]}"
 
 held_for() {
   local acq now
@@ -88,71 +95,33 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Claim before selecting or booting a device. `ln` fails atomically if the destination
-    # already exists, so writing the FULL claim (with an empty UDID) into a temp file first and
-    # hard-linking it into place means a reader either sees no file or a complete one, never a
-    # partial one, and exactly one of any number of concurrent `ln` calls can win. holder_alive
-    # falls back to the recorded pid when UDID is empty, and PID_TO_RECORD outlives this script,
-    # so a concurrent acquire that loses the `ln` correctly sees this claim as held, not as a
-    # still-forming lock it is entitled to break.
-    #
-    # Losing the `ln` means the lock already exists: an alive holder is a legitimate refusal. A
-    # dead holder is broken by atomically renaming it out of the path with `mv`, which can only
-    # succeed for one caller since the source vanishes for everyone else the instant it wins; the
-    # loop then retries the `ln`, now uncontested. This replaces the old check-then-write with
-    # nothing serializing the two, and the old truncate-then-fill `{ ... } > "$LOCK"`, which is
-    # exactly the race and the partial write parked as a finding on this branch.
-    CLAIMED=0
-    TRIES=0
-    while [ "$CLAIMED" = "0" ]; do
-      TRIES=$((TRIES + 1))
-      if [ "$TRIES" -gt 20 ]; then
-        echo "sim-lock: giving up after 20 attempts to claim the lock, something is stuck" >&2
-        exit 1
-      fi
-
-      CLAIM_TMP=$(mktemp "$LOCK_DIR/.sim.lock.claim.XXXXXX")
-      {
-        printf 'SLOT=%s\n' "$SLOT"
-        printf 'PID=%s\n' "$PID_TO_RECORD"
-        printf 'UDID=\n'
-        printf 'ACQUIRED=%s\n' "$(date +%s)"
-      } > "$CLAIM_TMP"
-
-      if ln "$CLAIM_TMP" "$LOCK" 2>/dev/null; then
-        rm -f "$CLAIM_TMP" 2>/dev/null || true
-        CLAIMED=1
-        break
-      fi
-      rm -f "$CLAIM_TMP" 2>/dev/null || true
-
+    agent_check_ownership "$WORKSPACE" "acquire simulator" || exit 1
+    if [ -f "$LOCK" ]; then
       if holder_alive; then
         printf 'sim-lock: REFUSED. Slot %s holds the simulator (pid %s, device %s) for %s.\n' \
           "$(lock_get SLOT)" "$(lock_get PID)" "$(lock_get UDID)" "$(held_for)" >&2
-        echo "sim-lock: wait, or ask that slot to run sim-lock.sh release." >&2
         exit 1
       fi
+      printf 'sim-lock: BREAKING a stale lock held by slot %s, pid %s.\n' \
+        "$(lock_get SLOT)" "$(lock_get PID)" >&2
+      rm -f "$LOCK"
+    fi
+    CLAIM="$$.$RANDOM.$(date +%s)"
+    CLAIM_TMP=$(mktemp "$LOCK_DIR/.sim.lock.claim.XXXXXX")
+    {
+      printf 'SLOT=%s\n' "$SLOT"
+      printf 'PID=%s\n' "$PID_TO_RECORD"
+      printf 'UDID=\n'
+      printf 'ACQUIRED=%s\n' "$(date +%s)"
+      printf 'REPO=%s\n' "$REPO"
+      printf 'WORKSPACE=%s\n' "$WORKSPACE"
+      printf 'CLAIM=%s\n' "$CLAIM"
+    } > "$CLAIM_TMP"
+    mv "$CLAIM_TMP" "$LOCK"
 
-      # Stale, and loudly so: break it by renaming it out of the path. Whichever concurrent
-      # acquire wins this rename is the only one that gets to print the message, and the only one
-      # whose retry of `ln` above lands uncontested; anyone who loses the rename just retries and
-      # finds the winner's fresh claim already in its place.
-      STALE_TMP=$(mktemp "$LOCK_DIR/.sim.lock.stale.XXXXXX")
-      if mv "$LOCK" "$STALE_TMP" 2>/dev/null; then
-        printf 'sim-lock: BREAKING a stale lock held by slot %s, pid %s (process is dead).\n' \
-          "$(sed -n '/^SLOT=/{s///p;q;}' "$STALE_TMP")" \
-          "$(sed -n '/^PID=/{s///p;q;}' "$STALE_TMP")" >&2
-      fi
-      rm -f "$STALE_TMP" 2>/dev/null || true
-    done
-
-    # From here we alone hold the claim (UDID empty, our pid alive). A failure choosing or
-    # booting a device below is a new failure mode this claim-first order introduces, and it must
-    # not strand the lock for the next agent: release on any exit until we succeed below, then
-    # cancel the trap.
     release_on_failure() {
-      echo "sim-lock: a later step failed after claiming the lock for slot $SLOT, releasing it" >&2
-      rm -f "$LOCK" 2>/dev/null || true
+      echo "sim-lock: acquisition failed for slot $SLOT, releasing its claim" >&2
+      if claim_is_ours; then rm -f "$LOCK"; fi
     }
     trap release_on_failure EXIT
 
@@ -173,15 +142,9 @@ case "$ACTION" in
       xcrun simctl boot "$UDID"
     fi
 
-    # Fill in the UDID with the same atomic replace, so a reader never sees a half-updated lock.
-    # SLOT, PID and ACQUIRED carry forward unchanged from the claim.
+    claim_is_ours || { echo "sim-lock: claim changed during acquisition; refusing to update it" >&2; exit 1; }
     FILL_TMP=$(mktemp "$LOCK_DIR/.sim.lock.fill.XXXXXX")
-    {
-      printf 'SLOT=%s\n' "$SLOT"
-      printf 'PID=%s\n' "$PID_TO_RECORD"
-      printf 'UDID=%s\n' "$UDID"
-      printf 'ACQUIRED=%s\n' "$(lock_get ACQUIRED)"
-    } > "$FILL_TMP"
+    sed "s/^UDID=.*/UDID=$UDID/" "$LOCK" > "$FILL_TMP"
     mv "$FILL_TMP" "$LOCK"
 
     trap - EXIT
@@ -196,6 +159,13 @@ case "$ACTION" in
       exit 0
     fi
     agent_require_commands xcrun
+    [ "$(lock_get REPO)" = "$REPO" ] || {
+      echo "sim-lock: REFUSED. The simulator belongs to another repository." >&2; exit 1;
+    }
+    owner_workspace=$(lock_get WORKSPACE)
+    [ -n "$owner_workspace" ] || { echo "sim-lock: legacy claim has no workspace identity; refusing release" >&2; exit 1; }
+    agent_check_ownership "$owner_workspace" "release simulator" || exit 1
+    RELEASE_CLAIM=$(lock_get CLAIM)
     holder=$(lock_get SLOT)
     if [ "$holder" != "$SLOT" ] && [ "$FORCE" = "0" ]; then
       printf 'sim-lock: REFUSED. The lock is held by slot %s, not %s. Use --force to override.\n' \
@@ -208,6 +178,9 @@ case "$ACTION" in
       xcrun simctl shutdown "$udid" 2>/dev/null || true
     fi
     osascript -e 'tell application "Simulator" to quit' 2>/dev/null || true
+    [ "$(lock_get CLAIM)" = "$RELEASE_CLAIM" ] || {
+      echo "sim-lock: claim changed during release; refusing to remove it" >&2; exit 1;
+    }
     rm -f "$LOCK"
     echo "sim-lock: released"
     ;;

@@ -1,20 +1,24 @@
 # Contributing
 
-Keep changes compatible with the macOS system Bash 3.2. Avoid Bash 4 features, GNU-only utility
-flags, mutable registry files, and command strings executed through `eval`.
+Keep the runtime compatible with macOS system Bash 3.2 and BSD utilities. Avoid Bash 4 features,
+GNU-only flags, mutable resource registries, and shell command strings executed through `eval`.
 
-Before opening a change:
+Before opening a change, run the repository checks and inspect the diff:
 
-```bash
+```sh
 npm ci
 npm run check
 git diff --check
 ```
 
-Tests that need Git worktrees must create a disposable repository under the OS temporary
-directory. Automated tests must not boot a simulator, create a developer database, kill a real
-listener, or provision a sibling worktree beside this checkout.
+Tests that need Git worktrees must create a disposable repository. Automated tests should not boot
+a simulator, create a developer database, kill a real listener, or provision a worktree beside the
+source checkout.
 
-Changes to queue isolation should retain both directional assertions: another schema cannot fetch
-the job, and the originating schema can. Changes to cleanup should default to dry-run or refusal
-when ownership cannot be proven.
+For queue changes, retain both assertions: another schema cannot fetch the job, and the originating
+schema can. For cleanup changes, test contention and preserve the default refusal when ownership is
+unclear.
+
+Keep AgentSlots focused on local runtime resources. Use the project's existing state record for
+plans and progress; `--state` may point to it, but the runtime should not generate another task
+record.

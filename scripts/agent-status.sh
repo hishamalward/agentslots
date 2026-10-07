@@ -30,14 +30,18 @@ echo "---------"
 
 # `git worktree list --porcelain` emits a blank-line-separated record per worktree. Parsing the
 # porcelain form rather than the human one is what makes a path with a space safe.
-git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while read -r wt; do
-  [ -d "$wt" ] || { printf '  %s\n    ORPHAN: registered worktree, directory is gone (git worktree prune)\n' "$wt"; continue; }
+WORKSPACES=$(agent_workspaces) || exit 1
+printf '%s\n' "$WORKSPACES" | while read -r wt; do
+  [ -d "$wt" ] || { printf '  %s\n    ORPHAN: workspace directory is gone; inspect Git and AgentKeel records\n' "$wt"; continue; }
 
   branch=$(git -C "$wt" symbolic-ref -q --short HEAD 2>/dev/null || echo '(detached)')
   tier=$(agent_tier_of_worktree "$wt")
   slot=$(agent_slot_of_worktree "$wt" || true)
 
   printf '  %s\n' "$wt"
+  ownership=$(agent_workspace_ownership "$wt") || exit 1
+  printf '    ownership %s\n' "$ownership"
+  if agent_workspace_is_clone "$wt"; then printf '    independent clone: runtime release only; human AgentKeel import/release preserves code\n'; fi
   printf '    branch %s, tier %s' "$branch" "$tier"
   if [ -n "$slot" ]; then
     printf ', slot %s\n' "$slot"
@@ -54,7 +58,7 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while 
     # day, and agent-down.sh refuses slot 0 anyway, so flagging it would make the primary status
     # tool advise destroying the shared tree on every run, and du -sm a 1.4 GB node_modules to
     # do it. The merged-branch check further down already guards the same way.
-    if [ "$wt" != "$MAIN" ] && ! agent_port_busy "$web" && ! agent_port_busy "$metro"; then
+    if ! agent_workspace_is_clone "$wt" && [ "$wt" != "$MAIN" ] && ! agent_port_busy "$web" && ! agent_port_busy "$metro"; then
       if mb=$(du -sm "$wt" 2>/dev/null | awk '{print $1}'); then
         note "slot $slot has no live server. agent-down.sh $slot reclaims about ${mb} MB."
       else
@@ -72,21 +76,24 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while 
     printf '    dependencies MAY BE STALE; run the project dependency-install command\n'
   fi
 
-  # The handover is committed, so the distance from the last commit touching it to the branch
-  # tip is derivable. The system cannot know what you meant, but it can know you have not said
-  # anything in twenty commits (spec 4.7).
+  # Optional project state pointer, with legacy handover compatibility.
   if [ -f "$wt/.agent" ]; then
-    ho=$(sed -n '/^HANDOVER=/{s///p;q;}' "$wt/.agent")
-    if [ -n "$ho" ]; then
-      if [ -f "$wt/$ho" ]; then
-        behind=$(agent_handover_behind "$wt" "$ho" || echo '')
+    pointer=$(sed -n '/^STATE=/{s///p;q;}' "$wt/.agent")
+    pointer_label="state"
+    if [ -z "$pointer" ]; then
+      pointer=$(sed -n '/^HANDOVER=/{s///p;q;}' "$wt/.agent")
+      pointer_label="handover"
+    fi
+    if [ -n "$pointer" ]; then
+      if [ -f "$wt/$pointer" ]; then
+        behind=$(agent_handover_behind "$wt" "$pointer" || echo '')
         if [ -n "$behind" ] && [ "$behind" -gt 0 ]; then
-          printf '    handover %s is %s commits behind\n' "$ho" "$behind"
+          printf '    %s %s is %s commits behind\n' "$pointer_label" "$pointer" "$behind"
         else
-          printf '    handover %s is current\n' "$ho"
+          printf '    %s %s is current\n' "$pointer_label" "$pointer"
         fi
       else
-        printf '    handover %s DOES NOT EXIST YET\n' "$ho"
+        printf '    %s %s is not present\n' "$pointer_label" "$pointer"
       fi
     fi
   else
@@ -106,7 +113,7 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while 
   # one commit beyond the branch's creation entry, which a merge into main never touches. And
   # `main` itself is excluded: it is only ever meant to be checked out in the main tree, but
   # nothing enforces that, so a linked worktree sitting on `main` must not be called an orphan.
-  if [ "$wt" != "$MAIN" ] && [ "$branch" != '(detached)' ] && [ "$branch" != "$MAIN_BRANCH" ]; then
+  if ! agent_workspace_is_clone "$wt" && [ "$wt" != "$MAIN" ] && [ "$branch" != '(detached)' ] && [ "$branch" != "$MAIN_BRANCH" ]; then
     if git -C "$MAIN" branch --merged "$MAIN_BRANCH" --format='%(refname:short)' | grep -Fqx "$branch"; then
       if agent_branch_has_own_commits "$MAIN" "$branch"; then
         if agent_worktree_provisioned_after_tip "$wt" "$MAIN" "$branch"; then
@@ -115,7 +122,7 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while 
           note "branch $branch is fully merged into $MAIN_BRANCH. agent-down.sh it."
         fi
       else
-        note "branch $branch is merged into $MAIN_BRANCH, but its reflog shows no commits of its own (freshly cut from $MAIN_BRANCH with no work yet, or its reflog has expired). agent-reap.sh will refuse it automatically."
+        printf '    branch %s: new or preserved branch; no automatic cleanup\n' "$branch"
       fi
     fi
   fi
@@ -126,7 +133,7 @@ echo "slot resources with no worktree"
 echo "-------------------------------"
 # A database or a listening port whose slot no worktree claims. Derived by asking every slot,
 # then subtracting the slots the worktrees above account for.
-claimed=$(git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while read -r wt; do
+claimed=$(printf '%s\n' "$WORKSPACES" | while read -r wt; do
   [ -d "$wt" ] && agent_slot_of_worktree "$wt" || true
 done | tr '\n' ' ')
 found=0

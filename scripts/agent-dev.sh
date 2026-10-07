@@ -13,6 +13,7 @@ agent_config_validate
 agent_require_commands git lsof
 
 WT=$(git rev-parse --show-toplevel)
+agent_check_ownership "$WT" "start runtime"
 TIER=$(agent_tier_of_worktree "$WT")
 BRANCH=$(git -C "$WT" rev-parse --abbrev-ref HEAD)
 

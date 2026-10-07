@@ -34,6 +34,7 @@ function createFixture(prepareBody: string): Fixture {
     'AGENT_MAIN_BRANCH=trunk',
     'AGENT_PROJECT_SLUG=fixture',
     'AGENT_WORKTREE_PREFIX=fixture-',
+    `AGENT_SIM_LOCK="${path.join(base, 'sim.lock')}"`,
     `agent_prepare_worktree() { ${prepareBody}; }`,
   ].join('\n'));
   execFileSync('git', ['add', '.'], { cwd: repo });
@@ -57,6 +58,7 @@ function createStackFixture(): Fixture & { bin: string; dbState: string } {
     'AGENT_DATABASE_MAIN=fixture_dev',
     'AGENT_DATABASE_PREFIX=fixture_a',
     'AGENT_WORKTREE_PREFIX=fixture-',
+    `AGENT_SIM_LOCK="${path.join(fixture.base, 'sim.lock')}"`,
     'AGENT_SLOT_MAX=2',
     'AGENT_APP_DIR=.',
     'AGENT_ENV_FILE=.env',
@@ -104,14 +106,14 @@ function runUp(repo: string, branch: string): { status: number; stderr: string }
 }
 
 describe('agent-up code-tier integration', () => {
-  it('creates a self-contained worktree and handover with project hooks', () => {
+  it('creates a self-contained worktree with project hooks and no authored documents', () => {
     const fixture = createFixture(':');
     const wt = path.join(fixture.base, 'fixture-happy-path');
     try {
       expect(runUp(fixture.repo, 'feat/happy-path').status).toBe(0);
       expect(existsSync(path.join(wt, '.agent'))).toBe(true);
-      expect(readFileSync(path.join(wt, 'docs/plans/happy-path-handover.md'), 'utf8'))
-        .toContain('Status: in progress');
+      expect(existsSync(path.join(wt, 'docs'))).toBe(false);
+      expect(readFileSync(path.join(wt, '.agent'), 'utf8')).not.toContain('HANDOVER=');
       writeFileSync(path.join(wt, '.agent-slots.conf'), 'AGENT_PROJECT_SLUG=wrong_branch_value\n');
       expect(execFileSync('bash', ['-c', '. ./scripts/lib/agent-slot.sh; agent_db_name 0'], {
         cwd: wt,
@@ -172,7 +174,7 @@ describe('agent-up code-tier integration', () => {
       expect(slotEnv).toContain('APP_URL="http://localhost:3100"');
       expect(readFileSync(path.join(wt, '.agent'), 'utf8')).toContain('TIER=stack');
 
-      execFileSync('bash', ['scripts/agent-down.sh', '1', '--force'], {
+      execFileSync('bash', ['scripts/agent-down.sh', '1'], {
         cwd: fixture.repo,
         env,
         stdio: 'pipe',

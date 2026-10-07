@@ -1,99 +1,182 @@
 # Quickstart
 
-## 1. Configure the target project
+AgentSlots supports macOS with system Bash 3.2. The installer and runtime ownership checks need
+Python 3.10 or newer. Stack operations need Git, `lsof`, and PostgreSQL client tools (`psql`, `createdb`, `dropdb`, and
+`pg_dump`). Simulator locking also needs Xcode command-line tools and `jq`.
 
-```bash
-cp .agent-slots.conf.example .agent-slots.conf
+## 1. Preview and install
+
+Clone a reviewed AgentSlots Git checkout, then preview the changes for your project:
+
+```sh
+python3 install.py --repo /path/to/project
 ```
 
-Edit the database names, application paths, and hook functions. Commit the file; credentials stay
-in the application's configured env file, not in `.agent-slots.conf`.
+Review the preview, then apply it:
 
-Ensure `.agent` is ignored:
+```sh
+python3 install.py --repo /path/to/project --apply
+```
 
-```bash
+The installer places the pinned runtime under `.agents/agentslots/`, creates small project
+wrappers, and adds an AgentSlots guidance block to `AGENTS.md` without replacing your other
+instructions. It copies `.agent-slots.conf.example` to `.agent-slots.conf` only when the project
+configuration is missing. It does not fetch or update AgentSlots automatically.
+
+If the project already has scripts with AgentSlots names, the default is to refuse. Review the
+collision and choose an explicit migration only if those scripts are the ones you want to replace:
+
+```sh
+python3 install.py --repo /path/to/project --adopt-existing --apply
+```
+
+The install manifest records original script bytes and modes so uninstall can restore them. It
+also records the runtime version, source revision, and managed-file hashes in
+`.agents/agentslots-install.json`.
+
+## 2. Configure the project
+
+Edit `.agent-slots.conf` to set database names, application paths, env file, and project hook
+functions. If you installed without the example file available, copy the example into place first.
+Treat this file as trusted Bash code. Keep credentials in the application's env file. Review and
+commit the configuration, and ensure `.agent` is ignored:
+
+```sh
 git check-ignore -q .agent
 ```
 
-See `docs/configuration.md` for every variable and hook.
+See [configuration](docs/configuration.md) for each variable and hook.
 
-## 2. Verify the derivation contract
+## 3. Create a code worktree
 
-```bash
-bash -c '. ./scripts/lib/agent-slot.sh
-  agent_config_validate
-  printf "slot1: %s %s %s %s\n" \
-    "$(agent_db_name 1)" "$(agent_boss_schema 1)" \
-    "$(agent_web_port 1)" "$(agent_metro_port 1)"'
+```sh
+scripts/agent-up.sh feat/example
 ```
 
-Confirm the output matches the configured database, schema, and port formulas before provisioning.
+This creates a sibling worktree and runs the configured setup hook. It does not assign stack
+ports or a database. To connect the worktree with an existing project state document, pass its path:
 
-## 3. Provision code, then a stack
-
-```bash
-./scripts/agent-up.sh feat/example
-./scripts/agent-up.sh feat/example --stack
+```sh
+scripts/agent-up.sh feat/example --state docs/260901-feature-state.html
 ```
 
-The first command creates a worktree and handover without scarce runtime resources. The second
-upgrades the same worktree with a database and ports. Stack preflight refuses without changing
-state when PostgreSQL, the source env, the main database, a port, or a configured prerequisite is
-unavailable.
+The state pointer is optional and refers to a document already maintained by the project.
 
-## 4. Run and inspect
+### Attach a stack to an AgentKeel opened clone
 
-From inside the new worktree:
+AgentKeel creates the isolated clone and prints its launch command. AgentSlots attaches runtime
+resources to it; AgentKeel remains responsible for importing reviewed code and removing the clone.
+Before opening the clone, append `~/.agent-slots` to the existing `writable` array in the shared
+checkout's `agentkeel.json`. Merge this entry into the list and preserve every existing path. This
+grants the isolated session access to AgentSlots coordination files: per-repository lifecycle locks
+and the machine-wide simulator lock. Do not add
+the shared checkout or its `.git` directory. This uses AgentKeel's existing writable-path setting;
+it adds no permission system.
 
-```bash
-./scripts/agent-dev.sh
+Create the clone and print its exact sandbox launch command:
+
+```sh
+task.py open <task> --host codex|claude --size <size> --allow <permissions> --print-only
 ```
 
-From any worktree:
+Before running the printed launcher command, attach a stack using the shared checkout as the
+configuration authority:
 
-```bash
-./scripts/agent-status.sh
+```sh
+AGENT_REPO_ROOT=/path/to/shared/repository \
+  scripts/agent-up.sh feat/example --workspace /path/to/opened/clone --stack
 ```
 
-The status output is derived from the running system and identifies missing databases, idle
-stacks, stale dependency snapshots, merged branches, orphaned resources, and simulator locks.
+Then run the sandbox launch command printed by `task.py open`. The human sets `AGENT_REPO_ROOT`
+for provisioning; the opened clone record identifies its shared repository for later runtime
+commands.
 
-## 5. Stop or destroy
+The shared directory coordinates AgentSlots' per-repository lifecycle locks and the machine-wide
+simulator lock. CoreSimulator services and caches may need additional platform-managed writable
+roots. Simulator boot inside an isolated session has not been verified. Full host sandbox stack
+acceptance remains pending; see [acceptance evidence](docs/acceptance.md).
 
-```bash
-./scripts/agent-stop.sh 1
-./scripts/agent-down.sh 1
+When work is ready to finish, `scripts/agent-down.sh <slot>` releases the database and processes
+but retains the opened clone. Run `task.py import <task-id> --sha <full-commit-id>` for the
+reviewed commit, then `task.py release <task-id>` to remove the clone. Do not use AgentSlots to
+remove an AgentKeel clone.
+
+## 4. Add a stack when needed
+
+Upgrade the same worktree when the task needs to run the app or database:
+
+```sh
+scripts/agent-up.sh feat/example --stack
 ```
 
-`stop` retains the database and worktree for fast resume. `down` removes both and refuses a dirty
-worktree unless `--force` is explicitly supplied.
+AgentSlots chooses the lowest available slot, clones the configured local database, writes the
+slot's env values, and assigns its configured port numbers. Port numbers are checked during setup,
+then bound by the application when it starts. Set disjoint port ranges for repositories that run
+concurrently. Check the result with:
 
-The reaper is dry-run by default:
-
-```bash
-./scripts/agent-reap.sh
-./scripts/agent-reap.sh --yes
+```sh
+scripts/agent-status.sh
 ```
 
-## 6. Verify queue isolation
+From inside the worktree, start configured servers:
 
-Apply the helper under `integrations/pg-boss/`, provision two test schemas, and run:
-
-```bash
-DATABASE_URL_A='postgresql://localhost/project_dev' \
-PGBOSS_SCHEMA_A=pgboss_probe_a \
-PGBOSS_SCHEMA_B=pgboss_probe_b \
-npm run test:queue
+```sh
+scripts/agent-dev.sh
+scripts/agent-mobile.sh  # only when a secondary hook is configured
 ```
 
-Keep `DATABASE_URL_B` unset for the load-bearing same-database test. Set it only for an additional
-two-database run. Expect `ISOLATION PASS`, `CONTROL PASS`, and exit 0.
+## 5. Pause or finish
 
-## 7. Run repository checks
+Pause a stack and keep its worktree and database:
 
-```bash
+```sh
+scripts/agent-stop.sh 1
+```
+
+After work is preserved, release the stack and remove its linked worktree:
+
+```sh
+scripts/agent-down.sh 1
+```
+
+The reaper previews possible orphans by default. Review each reason before using `--yes` to clean
+up resources.
+
+## 6. Update or uninstall
+
+To update, use a reviewed newer AgentSlots checkout and rerun the installer. It refuses to
+overwrite edited runtime files. It updates the managed guidance block while preserving surrounding
+`AGENTS.md` text, and retains edits to project configuration and `.gitignore`:
+
+```sh
+python3 install.py --repo /path/to/project --apply
+```
+
+Uninstall first previews what would be removed or restored:
+
+```sh
+python3 install.py --repo /path/to/project --uninstall
+```
+
+Apply only after reviewing the preview:
+
+```sh
+python3 install.py --repo /path/to/project --uninstall --apply
+```
+
+Uninstall restores original project scripts and the exact original `AGENTS.md` when unchanged. If
+you edited that file, it removes only the unchanged AgentSlots guidance block and preserves your
+text. A configuration created by the installer is removed only if it is unchanged; user edits and
+project state documents named by `--state` are preserved.
+
+## 7. Check this repository
+
+For changes to AgentSlots itself:
+
+```sh
 npm ci
 npm run check
 ```
 
-The automated suite is self-contained. It does not touch a developer database or simulator.
+The automated checks use temporary Git repositories and mocked simulator output. The optional
+queue probe needs disposable PostgreSQL schemas; see [queue isolation](docs/queue-isolation.md).

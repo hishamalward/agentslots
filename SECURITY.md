@@ -1,12 +1,15 @@
 # Security policy
 
-`agent-slots` is local-development tooling that creates and deletes Git worktrees and PostgreSQL
-databases. Treat `.agent-slots.conf` as trusted code: it is sourced by Bash and should be reviewed
-like any executable script. Do not put credentials in it.
+AgentSlots is local development tooling. It provisions and removes Git worktrees and local
+PostgreSQL databases, and it may stop processes that own configured ports.
 
-Report vulnerabilities privately through the repository host's security-advisory feature. Include
-the affected script, macOS and Bash versions, the smallest reproduction available, and whether the
-issue can delete data, execute an unintended command, or cross a configured slot boundary.
+Treat `.agent-slots.conf` as trusted Bash code. Review it before use and do not put credentials in
+it. The scripts are not a security boundary between hostile processes and cannot prevent a user
+from configuring a local service to use a shared backend.
 
-Only the latest tagged release is supported once releases begin. Until then, reports should target
-the current default branch.
+Report vulnerabilities privately through the repository host's security advisory feature. Include
+the affected script, macOS and Bash versions, a small reproduction, and whether the issue can delete
+data, execute an unintended command, or cross a configured resource boundary.
+
+Until a new release is published, report issues against the default branch. After releases begin,
+only the latest tagged release is supported.

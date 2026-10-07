@@ -1,5 +1,35 @@
 # Acceptance results
 
+## Current 0.2.0 candidate
+
+As of 2026-10-07:
+
+- `npm run check` passes 100 tests.
+- Real Codex and Claude Code invocations pass for code-tier work with normal trust and installed
+  plugins.
+- A normal, non-isolated fixture lifecycle passed: status found the stack, its server returned HTTP
+  200, stop closed the port and kept the workspace, and down released the database while retaining
+  clone code. Both fixture clones were removed by their owner; all four disposable databases were
+  removed and their absence verified.
+- Fixture checks also pass for AgentKeel clone identity, prelaunch stack attachment, PostgreSQL
+  provisioning, and the queue positive-control probe.
+- Full runtime use inside AgentKeel's isolated host profiles remains **pending**. The default
+  profiles block local PostgreSQL over both sockets and TCP on both hosts. With an explicit
+  local-network grant, Codex status and an HTTP 200 check passed under its generated profile, but
+  stop could not inspect the process (`ps` returned `Operation not permitted`). A Claude socket
+  grant still did not allow PostgreSQL access. Simulator service/cache writable roots are also
+  unverified.
+
+The remaining failures sit at the host sandbox boundary: local-network access and trusted process
+inspection/cleanup need a host-level route. Do not disable the sandbox or bypass AgentSlots'
+ownership checks. The exact final commit SHA will be added after the candidate is committed.
+
+## Historical v0.1 evidence
+
+Everything below this note is preserved from the v0.1.0 acceptance record. It is historical evidence,
+including its partial judgments and documented limits, not a current product contract.
+
+
 The table below preserves the original live acceptance run from the source project. The current
 standalone repository also has an automated suite covering resource derivation, configuration,
 simulator liveness, pg-boss schedule ownership, provisioning, refusal paths, and rollback. Run it
