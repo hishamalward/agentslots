@@ -20,9 +20,9 @@ interface Run {
   stderr: string;
 }
 
-function run(args: string[]): Run {
+function run(args: string[], cwd = REPO): Run {
   try {
-    const stdout = execFileSync('bash', [SCRIPT, ...args], { encoding: 'utf8', cwd: REPO });
+    const stdout = execFileSync('bash', [SCRIPT, ...args], { encoding: 'utf8', cwd });
     return { status: 0, stdout, stderr: '' };
   } catch (e: any) {
     return {
@@ -38,45 +38,6 @@ function run(args: string[]): Run {
 function worktreeList(): string {
   return execFileSync('git', ['worktree', 'list', '--porcelain'], { encoding: 'utf8', cwd: REPO });
 }
-
-/** The branch checked out in the MAIN worktree right now, or null if it is detached.
- *  Never hardcode the checked-out branch: the main worktree can switch branches mid-session, so
- *  a hardcoded branch would
- *  either exercise the wrong preflight check or silently stop testing this one at all.
- *
- *  Porcelain entries are separated by a blank line and the main worktree is always the first
- *  entry, so confine the search to the first block: a naive first-`branch`-line-anywhere search
- *  would misattribute another worktree's branch to main if main itself is detached. */
-function mainWorktreeBranch(): string | null {
-  const firstBlock = worktreeList().split('\n\n')[0];
-  const branchLine = firstBlock.split('\n').find((l) => l.startsWith('branch '));
-  return branchLine ? branchLine.replace('branch refs/heads/', '') : null;
-}
-
-/** The absolute path of the MAIN worktree: the first porcelain entry, always. */
-function mainWorktreeRoot(): string {
-  const firstBlock = worktreeList().split('\n\n')[0];
-  const worktreeLine = firstBlock.split('\n').find((l) => l.startsWith('worktree '));
-  if (!worktreeLine) throw new Error('git worktree list --porcelain produced no worktree line');
-  return worktreeLine.replace('worktree ', '');
-}
-
-/** Mirrors agent_worktree_path from scripts/lib/agent-slot.sh: strip the <type>/ prefix, flatten
- *  any remaining slash, and sit the worktree beside (never inside) the main root. */
-function derivedWorktreePath(branch: string): string {
-  const idx = branch.indexOf('/');
-  const stripped = idx === -1 ? branch : branch.slice(idx + 1);
-  const slug = stripped.replace(/\//g, '-');
-  return path.join(path.dirname(mainWorktreeRoot()), `${path.basename(mainWorktreeRoot())}-${slug}`);
-}
-
-// Computed once at collection time.
-const MAIN_BRANCH = mainWorktreeBranch();
-// preflight 1 ("path already exists") runs before preflight 2 ("checked out elsewhere") in
-// agent-up.sh, so if the main worktree's branch happens to derive a path that already has a
-// sibling worktree (feat/multi-agent-isolation and recap-landing both do right now), the "already
-// checked out at" assertion below would fail on the wrong preflight message rather than skip.
-const MAIN_BRANCH_PATH_COLLIDES = MAIN_BRANCH !== null && existsSync(derivedWorktreePath(MAIN_BRANCH));
 
 describe('agent-up.sh refusal paths', () => {
   it('with no argument, exits 2 and prints usage on stderr', () => {
@@ -95,17 +56,31 @@ describe('agent-up.sh refusal paths', () => {
     expect(worktreeList()).toBe(before);
   });
 
-  it.skipIf(MAIN_BRANCH === null || MAIN_BRANCH_PATH_COLLIDES)(
-    'refuses a branch already checked out in another worktree',
-    () => {
-      const branch = MAIN_BRANCH as string;
-      const before = worktreeList();
-      const r = run([branch]);
+  it('refuses a branch already checked out in another worktree', () => {
+    const base = mkdtempSync(path.join(tmpdir(), 'agent-up-checked-out-'));
+    const repo = path.join(base, 'main');
+    mkdirSync(repo);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    try {
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'AgentSlots Test');
+      writeFileSync(path.join(repo, '.gitignore'), '.agent\n');
+      writeFileSync(path.join(repo, '.agent-slots.conf'),
+        `AGENT_WORKTREE_PREFIX=fixture-\nAGENT_SIM_LOCK=${base}/sim.lock\n`);
+      git('add', '.');
+      git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
+      git('checkout', '-qb', 'feat/already-checked-out');
+      const before = git('worktree', 'list', '--porcelain');
+      const r = run(['feat/already-checked-out'], repo);
       expect(r.status).toBe(1);
       expect(r.stderr).toContain('already checked out at');
-      expect(worktreeList()).toBe(before);
-    },
-  );
+      expect(git('worktree', 'list', '--porcelain')).toBe(before);
+      expect(existsSync(path.join(base, 'fixture-already-checked-out'))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 
   it('refuses a worktree path that already exists', () => {
     // This used to hardcode run(['feat/multi-agent-isolation']), relying on this branch's own

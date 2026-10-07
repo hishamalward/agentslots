@@ -164,9 +164,24 @@ describe('reality probes (read-only, no provisioning)', () => {
     expect(sh('psql() { :; }; lsof() { return 1; }; agent_next_free_slot')).toBe('1');
   });
 
-  it('classifies the main worktree as the main tier and slot 0', () => {
-    expect(sh('agent_tier_of_worktree "$(agent_main_root)"')).toBe('main');
-    expect(sh('agent_slot_of_worktree "$(agent_main_root)"')).toBe('0');
+  it('classifies the configured main branch as slot 0, but not a feature checkout', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'agent-slot-main-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    const probe = (snippet: string) => execFileSync('bash', ['-c',
+      `set -euo pipefail; . "${LIB}"; ${snippet}`], { cwd: repo, encoding: 'utf8' }).trim();
+    try {
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'AgentSlots Test');
+      git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture', '--allow-empty');
+      expect(probe('agent_tier_of_worktree "$(agent_main_root)"')).toBe('main');
+      expect(probe('agent_slot_of_worktree "$(agent_main_root)"')).toBe('0');
+      git('checkout', '-qb', 'feat/example');
+      expect(probe('agent_tier_of_worktree "$(agent_main_root)"')).toBe('code');
+      expect(probe('if agent_slot_of_worktree "$(agent_main_root)"; then exit 1; fi')).toBe('');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('classifies a worktree with no configured env file as code tier with NO slot', () => {
