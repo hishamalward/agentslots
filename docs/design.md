@@ -55,7 +55,8 @@ act, and it does not kill an unidentified listener.
 Lifecycle commands serialize by canonical Git repository with a stable lock file under
 `~/.agent-slots/repos/`, named from the SHA-256 of Git's common directory. With a custom
 `AGENT_SIM_LOCK`, the `repos/` directory sits beside that lock. Nested calls inherit the open lock
-descriptor so cleanup chains do not deadlock. The machine-wide simulator lock uses a separate mutex beside its lock file.
+descriptor so cleanup chains do not deadlock. The simulator uses a separate mutex beside its
+lock file.
 These files coordinate access; they are not a resource registry or daemon, and the shared `.git`
 metadata is not used for lifecycle locks.
 
@@ -75,8 +76,8 @@ hooks it needs.
 
 ## Queue isolation
 
-A separate database alone is not sufficient if two queue clients still use a shared schema. For
-pg-boss, each slot uses its own schema. A nonzero slot may process jobs in that schema but must not
+Separate databases isolate their queues. A schema per slot also keeps pg-boss clients separate
+when they share a database. A nonzero slot may process jobs in that schema but must not
 register recurring schedules. Provisioning removes the inherited queue schema from a cloned
 database so schedule rows from the source cannot fire in a non-owner slot.
 

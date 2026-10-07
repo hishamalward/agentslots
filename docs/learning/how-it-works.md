@@ -1,7 +1,7 @@
 # How AgentSlots works
 
 AgentSlots gives each coding task a separate filesystem and, when needed, separate local runtime
-resources. A worktree is cheap. A database and server port assignments are added only when a task needs to
+resources. A worktree is cheap. A database and server ports are added only when a task needs to
 run the app.
 
 ## The two tiers
@@ -44,6 +44,5 @@ See the [quickstart](../../QUICKSTART.md) for the exact command sequence.
 ## Current verification status
 
 Automated checks exercise the shell, TypeScript helpers, and temporary Git fixtures. The database
-probe requires disposable PostgreSQL schemas. The live multi-slot acceptance run documented in
-[acceptance.md](../acceptance.md) is historical evidence from the 0.1 release; it is not a fresh
-acceptance result for the current candidate.
+probe requires disposable PostgreSQL schemas. [Acceptance evidence](../acceptance.md) separates current candidate results from historical 0.1
+runs and names the unresolved host-sandbox limits.

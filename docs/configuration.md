@@ -93,7 +93,8 @@ or service, and AgentSlots does not write task state into shared `.git` metadata
 
 ## Required tools
 
-All modes require Git, macOS Bash 3.2, and Python 3.10 or newer for workspace identity checks. Stack operations require PostgreSQL's `psql`, `createdb`,
-`dropdb`, and `pg_dump`, plus `lsof`. Simulator operations require Xcode's `xcrun` and `jq`.
+All modes require Git, macOS Bash 3.2, and Python 3.10 or newer for workspace identity checks.
+Status needs a reachable local PostgreSQL server, `psql`, and `lsof`. Stack operations also need
+`createdb`, `dropdb`, and `pg_dump`. Simulator operations require Xcode's `xcrun` and `jq`.
 Scripts check these prerequisites before depending on their output, so a missing command is never
 mistaken for a free database, port, or device.

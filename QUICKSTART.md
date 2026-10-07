@@ -1,8 +1,9 @@
 # Quickstart
 
 AgentSlots supports macOS with system Bash 3.2. The installer and runtime ownership checks need
-Python 3.10 or newer. Stack operations need Git, `lsof`, and PostgreSQL client tools (`psql`, `createdb`, `dropdb`, and
-`pg_dump`). Simulator locking also needs Xcode command-line tools and `jq`.
+Python 3.10 or newer and Git. Status and stack commands also need a reachable local PostgreSQL
+server, `lsof`, and PostgreSQL client tools (`psql`, `createdb`, `dropdb`, and `pg_dump`).
+Simulator locking needs Xcode command-line tools and `jq`.
 
 ## 1. Preview and install
 
@@ -37,9 +38,9 @@ also records the runtime version, source revision, and managed-file hashes in
 ## 2. Configure the project
 
 Edit `.agent-slots.conf` to set database names, application paths, env file, and project hook
-functions. If you installed without the example file available, copy the example into place first.
-Treat this file as trusted Bash code. Keep credentials in the application's env file. Review and
-commit the configuration, and ensure `.agent` is ignored:
+functions. Treat this file as trusted Bash code. Keep credentials in the application's env file.
+Review and commit the installed runtime, wrappers, manifest, configuration and instruction changes
+before creating worktrees: new worktrees receive committed files. Ensure `.agent` is ignored:
 
 ```sh
 git check-ignore -q .agent
@@ -69,14 +70,14 @@ resources to it; AgentKeel remains responsible for importing reviewed code and r
 Before opening the clone, append `~/.agent-slots` to the existing `writable` array in the shared
 checkout's `agentkeel.json`. Merge this entry into the list and preserve every existing path. This
 grants the isolated session access to AgentSlots coordination files: per-repository lifecycle locks
-and the machine-wide simulator lock. Do not add
-the shared checkout or its `.git` directory. This uses AgentKeel's existing writable-path setting;
+and the machine-wide simulator lock. Do not add the shared checkout or its `.git` directory. This uses AgentKeel's existing writable-path setting;
 it adds no permission system.
 
-Create the clone and print its exact sandbox launch command:
+Use the `task.py` path shown by AgentKeel. The human creates the clone and prints its sandbox
+launch command (choose `--host claude` for Claude Code):
 
 ```sh
-task.py open <task> --host codex|claude --size <size> --allow <permissions> --print-only
+task.py open example --host codex --size medium --allow implement --print-only
 ```
 
 Before running the printed launcher command, attach a stack using the shared checkout as the

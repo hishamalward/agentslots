@@ -11,5 +11,5 @@ Report vulnerabilities privately through the repository host's security advisory
 the affected script, macOS and Bash versions, a small reproduction, and whether the issue can delete
 data, execute an unintended command, or cross a configured resource boundary.
 
-Until a new release is published, report issues against the default branch. After releases begin,
-only the latest tagged release is supported.
+The latest tagged release is supported. For an unreleased candidate, include its branch and commit
+SHA so the report can be matched to the tested code.

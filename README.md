@@ -36,8 +36,8 @@ Slot 0 stays the original checkout and the only slot that registers recurring qu
 
 For an AgentKeel opened clone, attach its runtime before starting the printed launcher. Set
 `AGENT_REPO_ROOT` to the shared checkout and pass the clone to `--workspace`; AgentKeel continues to
-own clone import and removal. The [quickstart](QUICKSTART.md) covers the sequence and simulator
-coordination setting.
+own clone import and removal. The [quickstart](QUICKSTART.md) covers the sequence and runtime
+coordination settings.
 
 ```bash
 scripts/agent-status.sh
@@ -75,10 +75,10 @@ python3 install.py --repo /path/to/project
 python3 install.py --repo /path/to/project --apply
 ```
 
-The installer and runtime ownership checks need Python 3.10 or newer. It does not download updates
-automatically. See the [quickstart](QUICKSTART.md) for update, migration, and uninstall steps. Project resource formulas
-and framework hooks live in `.agent-slots.conf`; review this trusted shell code and keep credentials
-in the project's env file.
+The installer and runtime ownership checks need Python 3.10 or newer. Updates are explicit, never
+automatic. See the [quickstart](QUICKSTART.md) for installation, migration, updates and removal.
+Project formulas and framework hooks live in `.agent-slots.conf`; review this trusted shell code
+and keep credentials in the project's env file.
 
 The tool targets macOS system Bash 3.2 and BSD command-line utilities. Stack operations also need
 PostgreSQL client tools and `lsof`. Simulator locking needs Xcode command-line tools and `jq`.
@@ -95,7 +95,7 @@ in [queue isolation](docs/queue-isolation.md). The probe needs disposable Postgr
 - [Design](docs/design.md)
 - [Queue isolation](docs/queue-isolation.md)
 - [Development environment](docs/dev-environment.md)
-- [Historical acceptance evidence](docs/acceptance.md)
+- [Acceptance evidence](docs/acceptance.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 
