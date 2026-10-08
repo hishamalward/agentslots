@@ -71,6 +71,35 @@ scripts/agent-up.sh feat/example --state docs/260901-feature-state.html
 
 The state pointer is optional and refers to a document already maintained by the project.
 
+### Runtime sessions: servers, databases and simulators
+
+Both Claude Code and Codex completed the full runtime cycle in sessions with access to the Mac.
+The model chooses commands; the host program and its sandbox decide whether they can run.
+
+1. Use a task worktree with the project's dependencies, local database and simulator app ready.
+2. Start a session whose host permissions allow runtime operations. The tested Claude session
+   already had host access. For the tested Codex CLI, the per-session command was:
+
+   ```sh
+   cd /path/to/task-worktree
+   codex -c 'default_permissions=":danger-full-access"'
+   ```
+
+   This gives that session broad host access, not just simulator access. It removes the shell's
+   sandbox containment for that session. Normal AgentKeel hooks and saved hook trust remain active;
+   task permissions still apply. It does not edit global settings or configure future sessions.
+   Use it only when that broader access is explicitly authorized.
+3. Have the agent declare its AgentKeel task if applicable, then run
+   `scripts/agent-check.sh --simulator` **through the agent's shell tool**. Running the check in
+   your own terminal does not test the agent's permissions.
+4. If the check passes, let the agent use the normal provisioning, app/QA and cleanup commands.
+   If it fails, resolve the reported host setting before proceeding; AgentSlots does not change
+   the setting or retry outside the sandbox automatically.
+
+AgentSlots owns capability checks and resources. AgentKeel owns task authorization and its launch
+profiles. The host owns access to macOS services. A future permission-aware launcher belongs with
+AgentKeel's host integration; a separate runtime service is not needed for the supported workflow.
+
 ### Attach a stack to an AgentKeel opened clone
 
 AgentKeel creates the isolated clone and prints its launch command. AgentSlots attaches runtime
@@ -103,12 +132,10 @@ Run `scripts/agent-check.sh` inside the launched session before runtime commands
 `--simulator` for device work. Full stack and simulator work under current restricted profiles is
 unsupported when this check fails; see [acceptance evidence](docs/acceptance.md).
 
-Ordinary host access is the supported runtime mode. A Codex named profile with a writable project
-root can still deny `ps` and CoreSimulator. Choosing `permissions.default_permissions` as
-`:danger-full-access` for one explicitly authorized session grants full host access. It is a
-broad permission choice, not a fine-grained runtime grant. AgentSlots never selects it, relaunches
-the host, bypasses trust, or edits global host settings. AgentKeel can authorize a task but cannot
-supply host capabilities its sandbox denies.
+The host-access procedure above describes ordinary task worktrees. An AgentKeel opened clone uses
+its generated isolation profile; the current restricted profiles have not passed the full runtime
+cycle. Attaching a stack does not remove that limit, and the printed isolation launcher must not
+be silently replaced with a full-access one.
 
 When work is ready to finish, `scripts/agent-down.sh <slot>` releases the database and processes
 but retains the opened clone. Run `task.py import <task-id> --sha <full-commit-id>` for the

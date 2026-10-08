@@ -12,13 +12,6 @@ when the task needs to run the app.
 
 It is one small runtime tool. It does not orchestrate agents, assign tasks, or manage permissions.
 
-**Host support:** runtime operations require ordinary macOS host access. The actual Listenality stack and
-simulator lifecycle passed on both Codex and Claude Code with normal hook trust in that mode.
-Full stack and simulator work under the
-current restricted host profiles is unsupported: those profiles can block local PostgreSQL,
-process inspection, or CoreSimulator. Run the capability check in the session that will do the
-work. See [acceptance evidence](docs/acceptance.md).
-
 ## Demo
 
 ![Two stack slots running independently, then one stopped while the other keeps running](docs/demo.gif)
@@ -98,6 +91,21 @@ sandbox access are separate requirements; AgentSlots does not change the host's 
 
 The tool targets macOS system Bash 3.2 and BSD command-line utilities. Stack operations also need
 PostgreSQL client tools and `lsof`. Simulator locking needs Xcode command-line tools and `jq`.
+
+## Host access for local runtime
+
+Claude Code and Codex can both run the full local lifecycle: provision a stack, start the app,
+use the simulator, and release the resources. The host session must allow local database
+connections, process inspection and Apple's simulator services.
+
+The tested restricted sandbox profiles block some of that access. This is a host permission
+setting, not a model limitation. AgentSlots checks access and manages resources; AgentKeel
+checks task permissions. Neither can override the operating system's sandbox.
+
+Choose an authorized runtime session, then run `scripts/agent-check.sh --simulator` inside it
+before starting the app. The [runtime setup steps](QUICKSTART.md#runtime-sessions-servers-databases-and-simulators)
+explain the tested Codex launch setting and its broader access. AgentSlots never changes host
+permissions automatically. Project-specific test results belong in the [acceptance record](docs/acceptance.md).
 
 ## Queue integration
 
