@@ -2,28 +2,59 @@
 
 ## Current 0.2.0 candidate
 
-Verified 2026-10-07. The full automated suite ran on clean commit
-`c5a7762a80fac29b10f56bc708ab18910174d486`:
+Runtime revision `dbc09195e649fac9664439ab47cbfb14642efdc1`, verified 2026-10-08.
+Documentation-only follow-ups do not change these tested runtime bytes.
 
-- `npm run check` passes 100 tests.
-- Real Codex and Claude Code invocations pass for code-tier work with normal trust and installed
-  plugins.
-- A normal, non-isolated fixture lifecycle passed: status found the stack, its server returned HTTP
-  200, stop closed the port and kept the workspace, and down released the database while retaining
-  clone code. Both fixture clones were removed by their owner; all four disposable databases were
-  removed and their absence verified.
-- Fixture checks also pass for AgentKeel clone identity, prelaunch stack attachment, PostgreSQL
-  provisioning, and the queue positive-control probe.
-- Full runtime use inside AgentKeel's isolated host profiles remains **pending**. The default
-  profiles block local PostgreSQL over both sockets and TCP on both hosts. With an explicit
-  local-network grant, Codex status and an HTTP 200 check passed under its generated profile, but
-  stop could not inspect the process (`ps` returned `Operation not permitted`). A Claude socket
-  grant still did not allow PostgreSQL access. Simulator service/cache writable roots are also
-  unverified.
+| Check | Result |
+|---|---|
+| Automated checks | 134 tests in 11 files pass, plus Bash syntax, ShellCheck and TypeScript. [CI passes](https://github.com/hishamalward/agentslots/actions/runs/37725849192). |
+| Onboarding | Installer fixtures cover policy preservation, coordination-directory grants, preview/apply, custom paths, and uninstall restoration. Capability checks cover local PostgreSQL, process identity and simulator discovery. |
+| Resource ownership | Regression checks cover foreign workspaces, replaced processes, replaced simulator claims, and preservation of unmerged or dirty code. |
+| Two-slot demo | Real local PostgreSQL databases and HTTP servers: both slots answer, stopping one leaves the other running, and both databases and worktrees are removed at the end. `docs/demo.gif` records this 0.2 runtime. |
+| Live hosts | Code-tier and actual Listenality runtime cycles passed in real Claude Code and Codex sessions with normal hook trust; execution modes are stated below. |
 
-The remaining failures sit at the host sandbox boundary: local-network access and trusted process
-inspection/cleanup need a host-level route. Do not disable the sandbox or bypass AgentSlots'
-ownership checks. Later documentation-only evidence updates do not change the tested runtime.
+### Listenality runtime acceptance
+
+The adoption uses a disposable copy of Listenality and its actual Next, Expo and simulator
+scripts. AgentSlots owns resources; the app owns its fixtures and launch sequence. No production
+service or shared worktree is used for these checks.
+
+Both hosts passed the same cycle on 2026-10-08:
+
+1. Provision a sibling worktree and local PostgreSQL slot; run the simulator capability check.
+2. Start Next and receive HTTP 200 with `db: true` from `/api/health`.
+3. Start Metro, acquire and boot the exact locked device, launch the installed app, and capture
+   its rendered Taste screen after bundle completion.
+4. Run `sim-down`, `agent-stop`, and `agent-down`; verify free ports, a shut-down device, no lock,
+   and absence of the task database and worktree.
+
+Claude Code 2.1.293 used its ordinary host execution. Codex used an explicitly authorized,
+per-session `:danger-full-access` profile; normal AgentKeel hooks and saved trust stayed enabled.
+No global permission setting changed. These passes do **not** establish restricted-sandbox support.
+
+Both screenshots show the app's “Developing your taste” loading state, without a red error
+screen; Claude also showed a development-warning toast. Full data loading and product journeys
+were not tested. The first Claude attempt ran out of disk space and was interrupted; its resources
+were cleaned up before the successful confirmation. All acceptance runtime resources are released.
+The health endpoint's LLM field checks configuration locally, not by calling an LLM.
+
+### Execution modes
+
+Ordinary macOS host access supports the required PostgreSQL, process inspection and simulator
+operations. Run `scripts/agent-check.sh` (or `--simulator`) in the session that will do the work.
+The installer configures AgentKeel's coordination-directory grant; it does not change host sandbox
+permissions or grant task authorization.
+
+The tested restricted profiles are **unsupported for the full runtime loop**. Earlier probes
+found PostgreSQL blocked on both hosts. After a local-network grant, Codex could reach HTTP 200
+but could not inspect processes for safe cleanup. CoreSimulator access was also refused in its
+restricted profile; Claude's isolated database access remained unresolved. A worktree or writable
+directory cannot grant those host services. Explicitly authorized host execution is a separate
+mode, never an automatic fallback after refusal.
+
+Earlier fixture checks also passed for AgentKeel clone identity, prelaunch stack attachment,
+PostgreSQL provisioning and the queue positive control. Queue code has not changed in this
+finishing pass. These checks do not establish sandboxed app or simulator support.
 
 ## Historical v0.1 evidence
 

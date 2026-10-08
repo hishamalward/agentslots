@@ -48,9 +48,9 @@ database.
 
 **The `AGENT_SLOT` cron-ownership guard.** Separating the queue's data is necessary but not
 sufficient: something also has to decide which slot is allowed to *register* recurring schedules,
-because a fresh queue schema starts with no schedules in it (a clone of the production database
+because a fresh queue schema starts with no schedules in it (a clone of the configured local template
 inherits schedule rows from whatever it was cloned from, unless those are dropped, which is a
-separate provisioning step described in `docs/design.md` section 4.3). The one-line guard above
+separate provisioning step described in [Design: queue isolation](design.md#queue-isolation)). The one-line guard above
 means only slot 0 (the unset, default case) ever calls the library's schedule-registration
 function at all. Every other slot creates its queues and processes jobs handed to it normally; it
 simply never writes a cron row, so it can never spontaneously trigger a scheduled job on its own.

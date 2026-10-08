@@ -35,13 +35,17 @@ python3 install.py --repo /path/to/project --adopt-existing --apply
 ```
 
 The install manifest records original script bytes and modes so uninstall can restore them. It
-also records the runtime version, source revision, and managed-file hashes in
-`.agents/agentslots-install.json`.
+also records the runtime version, source revision, `source_dirty` flag, and managed-file hashes in
+`.agents/agentslots-install.json`. Use a reviewed clean checkout for a runtime reproducible from
+its recorded revision. If `source_dirty` is true, the installed bytes can differ from that commit;
+the file hashes identify the actual installed payload.
 
 ## 2. Configure the project
 
 Edit `.agent-slots.conf` to set database names, application paths, env file, and project hook
 functions. Treat this file as trusted Bash code. Keep credentials in the application's env file.
+If you change `AGENT_SIM_LOCK` in an AgentKeel project after installation, rerun the installer
+with `--coordination-dir` naming the new lock parent before opening a session.
 Review and commit the installed runtime, wrappers, manifest, configuration and instruction changes
 before creating worktrees: new worktrees receive committed files. Ensure `.agent` is ignored:
 
@@ -168,6 +172,9 @@ overwrite edited runtime files. It updates the managed guidance block while pres
 python3 install.py --repo /path/to/project --apply
 ```
 
+For an AgentKeel project with a custom `AGENT_SIM_LOCK`, repeat
+`--coordination-dir /absolute/path/to/its/parent` on each update.
+
 Uninstall first previews what would be removed or restored:
 
 ```sh
@@ -184,6 +191,8 @@ Uninstall restores original project scripts and the exact original `AGENTS.md` w
 you edited that file, it removes only the unchanged AgentSlots guidance block and preserves your
 text. A configuration created by the installer is removed only if it is unchanged; user edits and
 project state documents named by `--state` are preserved.
+An unchanged `agentkeel.json` is restored to its original bytes and mode. An edited policy is
+retained, including any coordination grant, to preserve user changes.
 
 ## 7. Check this repository
 

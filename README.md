@@ -12,8 +12,9 @@ when the task needs to run the app.
 
 It is one small runtime tool. It does not orchestrate agents, assign tasks, or manage permissions.
 
-**Host support:** runtime operations require ordinary macOS host access. Code-tier work passed in
-real Codex and Claude Code sessions with normal trust. Full stack and simulator work under the
+**Host support:** runtime operations require ordinary macOS host access. The actual Listenality stack and
+simulator lifecycle passed on both Codex and Claude Code with normal hook trust in that mode.
+Full stack and simulator work under the
 current restricted host profiles is unsupported: those profiles can block local PostgreSQL,
 process inspection, or CoreSimulator. Run the capability check in the session that will do the
 work. See [acceptance evidence](docs/acceptance.md).
@@ -42,7 +43,8 @@ scripts/agent-up.sh feat/my-change --stack
 ```
 
 AgentSlots assigns the lowest available slot and derives its resource names from `AGENT_SLOT`.
-Slot 0 stays the original checkout and the only slot that registers recurring queue schedules.
+Slot 0 stays the original checkout. With the application-side pg-boss integration, only slot 0
+registers recurring queue schedules.
 
 For an AgentKeel opened clone, attach its runtime before starting the printed launcher. Set
 `AGENT_REPO_ROOT` to the shared checkout and pass the clone to `--workspace`; AgentKeel continues to
@@ -66,7 +68,7 @@ ownership and safe removal can be established.
 | Files | A sibling Git worktree per branch |
 | PostgreSQL | A separate cloned database for each stack slot |
 | Web and bundler | Port numbers derived from the slot and checked at setup; AgentSlots does not bind them |
-| pg-boss | A separate schema; only slot 0 registers recurring schedules |
+| pg-boss | With application-side integration, a separate schema; only slot 0 registers recurring schedules |
 | Exclusive simulator | One atomic lock with owner and device checks |
 
 Port formulas are per repository. Configure nonoverlapping web and bundler ranges when multiple
