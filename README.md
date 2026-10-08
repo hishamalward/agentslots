@@ -86,12 +86,17 @@ automatic. See the [quickstart](QUICKSTART.md) for installation, migration, upda
 Project formulas and framework hooks live in `.agent-slots.conf`; review this trusted shell code
 and keep credentials in the project's env file.
 
-For an existing AgentKeel project, the installer preserves its policy and adds only the runtime
-coordination directory to `agentkeel.json` writable paths. AgentKeel task authorization and host
-sandbox access are separate requirements; AgentSlots does not change the host's permissions.
-
 The tool targets macOS system Bash 3.2 and BSD command-line utilities. Stack operations also need
 PostgreSQL client tools and `lsof`. Simulator locking needs Xcode command-line tools and `jq`.
+
+## Works with AgentKeel
+
+[AgentKeel](https://github.com/hishamalward/agentkeel) manages task scope, permissions, reviews
+and shipping checks. AgentSlots manages each task's local workspace and runtime resources,
+including cleanup. For an existing AgentKeel project, the installer preserves its policy and
+adds the runtime coordination directory to `agentkeel.json` writable paths. AgentKeel keeps
+ownership of clone import and removal. See the [setup guide](QUICKSTART.md) for installation,
+host access and attaching runtime resources to an AgentKeel clone.
 
 ## Host access for local runtime
 
