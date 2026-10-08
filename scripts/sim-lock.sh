@@ -15,7 +15,7 @@ LOCK_DIR=$(dirname "$LOCK")
 REPO=$(agent_main_root)
 WORKSPACE=$(git rev-parse --show-toplevel)
 
-usage() { echo "usage: sim-lock.sh <acquire|release|status> [slot] [--force]" >&2; exit 2; }
+usage() { echo "usage: sim-lock.sh <acquire|release|status> [slot] [--force] [--keep-device] [--claim <token>] (last two options: release only)" >&2; exit 2; }
 
 ACTION="${1:-}"
 [ -n "$ACTION" ] || usage
@@ -23,9 +23,16 @@ shift || true
 
 SLOT=""
 FORCE=0
+KEEP_DEVICE=0
+EXPECTED_CLAIM=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
+    --keep-device) [ "$ACTION" = release ] || usage; KEEP_DEVICE=1; shift ;;
+    --claim)
+      [ "$ACTION" = release ] && [ $# -ge 2 ] && [ -n "$2" ] || usage
+      EXPECTED_CLAIM="$2"; shift 2 ;;
+    --*) usage ;;
     *) [ -z "$SLOT" ] || usage; SLOT="$1"; shift ;;
   esac
 done
@@ -158,7 +165,11 @@ case "$ACTION" in
       echo "sim-lock: no lock to release"
       exit 0
     fi
-    agent_require_commands xcrun
+    if [ -n "$EXPECTED_CLAIM" ] && [ "$(lock_get CLAIM)" != "$EXPECTED_CLAIM" ]; then
+      echo "sim-lock: REFUSED. The simulator claim was replaced; refusing release." >&2
+      exit 1
+    fi
+    [ "$KEEP_DEVICE" = 1 ] || agent_require_commands xcrun
     [ "$(lock_get REPO)" = "$REPO" ] || {
       echo "sim-lock: REFUSED. The simulator belongs to another repository." >&2; exit 1;
     }
@@ -173,11 +184,19 @@ case "$ACTION" in
       exit 1
     fi
     udid=$(lock_get UDID)
-    if [ -n "$udid" ]; then
+    if [ -n "$udid" ] && [ "$KEEP_DEVICE" = 0 ]; then
       echo "sim-lock: shutting down $udid"
-      xcrun simctl shutdown "$udid" 2>/dev/null || true
+      if ! xcrun simctl shutdown "$udid"; then
+        agent_require_commands jq
+        device_state=$(xcrun simctl list devices -j | jq -r --arg u "$udid" \
+          '[.devices[][] | select(.udid == $u)] | .[0].state // empty') || {
+          echo "sim-lock: cannot verify device shutdown; keeping its claim." >&2; exit 1;
+        }
+        [ "$device_state" = Shutdown ] || {
+          echo "sim-lock: device shutdown failed; keeping its claim." >&2; exit 1;
+        }
+      fi
     fi
-    osascript -e 'tell application "Simulator" to quit' 2>/dev/null || true
     [ "$(lock_get CLAIM)" = "$RELEASE_CLAIM" ] || {
       echo "sim-lock: claim changed during release; refusing to remove it" >&2; exit 1;
     }

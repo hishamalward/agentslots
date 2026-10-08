@@ -12,16 +12,21 @@ Before publishing a candidate:
 
 - Run `npm ci`, `npm run check`, `git diff --check`, and `git fsck --full` from a clean checkout.
 - Exercise the installer preview, apply, update refusal for a modified managed file, adoption
-  backup, and uninstall restore/preserve paths in disposable fixture repositories.
+  backup, existing AgentKeel policy preservation/coordination grants, and uninstall
+  restore/preserve paths in disposable fixture repositories.
+- Run `scripts/agent-check.sh --code`, the default stack check, and `--simulator` in the actual
+  host session. Record failures without permission escalation; a successful ordinary-host check
+  does not establish support under a restricted profile.
 - Run the queue positive-control probe against disposable PostgreSQL schemas if queue behavior or
   its integration changed.
 - Run the local multi-slot lifecycle on macOS for the exact candidate revision. Record whether
   stack provisioning, ownership checks, pause, cleanup, and the simulator lock passed. Keep prior
   acceptance as historical evidence; do not merge it with a new run.
-- For AgentKeel opened clones, verify local PostgreSQL and process inspection/cleanup under each
-  host's normal sandbox. Code-tier host checks do not establish isolated stack support. Keep full
-  sandbox acceptance pending while either host blocks a required local operation; never disable the
-  sandbox or bypass ownership checks to make the run pass.
+- For AgentKeel opened clones, record local PostgreSQL, process inspection/cleanup, and
+  CoreSimulator results under each host's active profile. Code-tier checks do not establish full
+  runtime support. Current restricted profiles that deny a prerequisite are unsupported. Explicitly
+  authorized full host access is a separate mode and must be labeled as such; never automatically
+  switch profiles, bypass trust, or weaken ownership checks to make a run pass.
 - Verify the installer uses the reviewed source revision and does not fetch an unpinned runtime.
 
 The 0.2.0 release is pending until these checks are run and recorded against its exact commit.

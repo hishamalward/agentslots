@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -17,11 +18,14 @@ SOURCE = Path(__file__).resolve().parent
 VENDOR = Path(".agents/agentslots")
 MANIFEST = Path(".agents/agentslots-install.json")
 COMMANDS = ("agent-up", "agent-dev", "agent-mobile", "agent-status", "agent-stop",
-            "agent-down", "agent-reap", "sim-lock")
+            "agent-down", "agent-reap", "agent-check", "sim-lock")
+EDITABLE = ("AGENTS.md", ".agent-slots.conf", ".gitignore", "agentkeel.json")
 BLOCK = (b"<!-- agentslots:start -->\n"
          b"## AgentSlots runtime resources\n\n"
          b"These runtime instructions complement task permissions; they do not grant them.\n"
          b"Read `.agents/agentslots/README.md` for the installed runtime contract.\n"
+         b"Run `scripts/agent-check.sh --code` before code-only work; run it without\n"
+         b"`--code` before adding a stack, and add `--simulator` for device work.\n"
          b"Run `scripts/agent-status.sh` before provisioning or cleanup. Start code-only with\n"
          b"`scripts/agent-up.sh <branch>`; add `--stack` only for a running local app.\n"
          b"Stop and release only this task's resources. AgentKeel owns its isolated clones.\n"
@@ -61,6 +65,53 @@ def saved(data):
 
 def restored(data):
     return None if data is None else base64.b64decode(data, validate=True)
+
+
+def coordination_directory(root, requested, config):
+    # Shell configuration is executable code. Detect an override, never source it here.
+    if requested is None and (os.environ.get("AGENT_SIM_LOCK") or
+                              re.search(rb"\bAGENT_SIM_LOCK\b", config or b"")):
+        raise Refused("custom AGENT_SIM_LOCK: pass --coordination-dir with the lock file's parent")
+    directory = Path(requested or "~/.agent-slots").expanduser()
+    if not directory.is_absolute():
+        raise Refused("--coordination-dir must be an absolute directory")
+    for ancestor in (directory, *directory.parents):
+        if ancestor.is_symlink():
+            raise Refused(f"refusing symlink in coordination directory: {ancestor}")
+    directory = directory.resolve()
+    home = Path.home().resolve()
+    protected = (root, Path(os.environ.get("AGENTKEEL_HOME", "~/.agentkeel")).expanduser().resolve(),
+                 home / ".codex", home / ".claude")
+    if (directory == home or directory in home.parents or ".git" in directory.parts or
+            any(directory == p or directory in p.parents or p in directory.parents for p in protected)):
+        raise Refused("coordination directory overlaps a home, repository or protected configuration root")
+    if directory.exists() and not directory.is_dir():
+        raise Refused(f"coordination directory is not a directory: {directory}")
+    return str(directory)
+
+
+def coordination_policy(root, current, entry, requested, config):
+    try:
+        policy = json.loads(current)
+        if not isinstance(policy, dict):
+            raise ValueError("expected an object")
+        writable = policy.get("writable", [])
+        if not isinstance(writable, list) or not all(isinstance(p, str) for p in writable):
+            raise ValueError("writable must be an array of paths")
+    except (ValueError, TypeError) as error:
+        raise Refused(f"invalid agentkeel.json: {error}") from error
+    directory = coordination_directory(root, requested, config)
+    same = entry and digest(current) == entry["sha256"]
+    previous = entry.get("coordination_added") if same else None
+    if previous:
+        writable = [p for p in writable if p != previous]
+    # Preserve spelling and order of every pre-existing entry, including ~/ paths.
+    present = any(str(Path(p).expanduser().resolve()) == directory for p in writable)
+    if present and not previous:
+        return current, None
+    added = None if present else directory
+    policy["writable"] = writable + ([directory] if added else [])
+    return (json.dumps(policy, indent=2) + "\n").encode(), added
 
 
 def atomic_write(root, relative, data, mode=0o644):
@@ -119,7 +170,7 @@ def load_manifest(root):
             raise ValueError("unsupported format")
         for name, entry in manifest["files"].items():
             allowed = name.startswith(str(VENDOR) + "/") or name in {
-                "AGENTS.md", ".agent-slots.conf", ".gitignore", "scripts/lib/agent-slot.sh",
+                *EDITABLE, "scripts/lib/agent-slot.sh",
                 *(f"scripts/{command}.sh" for command in COMMANDS)}
             if not allowed:
                 raise ValueError(f"unexpected managed path {name}")
@@ -139,6 +190,7 @@ def main():
     parser.add_argument("--uninstall", action="store_true")
     parser.add_argument("--adopt-existing", action="store_true",
                         help="replace existing script entry points, preserving their original bytes")
+    parser.add_argument("--coordination-dir", help="custom AGENT_SIM_LOCK parent for AgentKeel writable paths")
     args = parser.parse_args()
     root = args.repo.expanduser().resolve()
     try:
@@ -156,7 +208,7 @@ def main():
         for name, entry in entries.items():
             current = read(root, name)
             same = current is not None and digest(current) == entry["sha256"]
-            editable = name in ("AGENTS.md", ".agent-slots.conf", ".gitignore")
+            editable = name in EDITABLE
             if not same and not editable:
                 raise Refused(f"managed file changed: {name}; preserve or reconcile it before updating/removing")
             if args.uninstall:
@@ -185,9 +237,9 @@ def main():
                     changes[name] = (data, mode)
             # Remove retired, unchanged vendor files on an update, restoring any adopted originals.
             for name, entry in entries.items():
-                if name not in files and name not in ("AGENTS.md", ".agent-slots.conf", ".gitignore"):
+                if name not in files and name not in EDITABLE:
                     changes[name] = (restored(entry["original"]), entry.get("original_mode", 0o644))
-            for name in ("AGENTS.md", ".agent-slots.conf", ".gitignore"):
+            for name in EDITABLE:
                 current = read(root, name)
                 entry = entries.get(name)
                 data, block = current, None
@@ -209,13 +261,21 @@ def main():
                 elif name == ".gitignore":
                     if b".agent" not in (current or b"").splitlines():
                         data = (current or b"") + (b"\n" if current and not current.endswith(b"\n") else b"") + b".agent\n"
+                elif name == "agentkeel.json":
+                    if current is None:
+                        continue  # Existing policy is the opt-in; never create a permission policy.
+                    data, added = coordination_policy(root, current, entry, args.coordination_dir,
+                                                      read(root, ".agent-slots.conf"))
+                mode = safe_path(root, name).stat().st_mode & 0o777 if name == "agentkeel.json" and current is not None else 0o644
                 if data != current:
-                    changes[name] = (data, 0o644)
+                    changes[name] = (data, mode)
                 if entry or data != current:
                     records[name] = {"original": entry["original"] if entry else saved(current),
-                                     "sha256": digest(data), "original_mode": entry.get("original_mode", 0o644) if entry else 0o644}
+                                     "sha256": digest(data), "original_mode": entry.get("original_mode", mode) if entry else mode}
                     if block:
                         records[name]["block"] = saved(block)
+                    if name == "agentkeel.json" and added:
+                        records[name]["coordination_added"] = added
                     if entry and name == "AGENTS.md" and current is not None and digest(current) != entry["sha256"]:
                         records[name]["original"] = saved(current.replace(restored(entry["block"]), b"", 1))
                     # User-owned config/ignore edits must survive uninstall.

@@ -207,14 +207,22 @@ def listeners(port):
         raise Unknown('invalid listener process IDs') from error
 
 
-def stop(port, workspace):
+def owned_listeners(port, workspace, require_listener=False):
     workspace = real(workspace)
+    pids = listeners(port)
+    if require_listener and not pids:
+        raise Unknown(f'port {port} has no listener to verify')
     original = {}
-    for pid in listeners(port):
+    for pid in pids:
         token = identity(pid)
         if token is None or not (token[0] == workspace or token[0].startswith(workspace + os.sep)):
             raise Unknown(f'port {port} listener {pid} is foreign or unidentified; nothing was killed')
         original[pid] = token
+    return original
+
+
+def stop(port, workspace):
+    original = owned_listeners(port, workspace)
     for sig in (signal.SIGTERM, signal.SIGKILL):
         for pid, token in original.items():
             now = identity(pid)
@@ -245,6 +253,10 @@ def main():
         print('unclaimed' if not owners else ', '.join(
             ('self' if me and (me in sessions or any(rec['task'] == task and rec['session_id'] == me for rec in tasks)) else 'foreign')
             + ':' + task for task, sessions in owners))
+    elif mode == 'check-port':
+        check(args[1])
+        check(args[0])
+        owned_listeners(args[0], args[1], require_listener=True)
     elif mode == 'stop-port':
         check(args[1])
         stop(args[0], args[1])

@@ -12,29 +12,32 @@ when the task needs to run the app.
 
 It is one small runtime tool. It does not orchestrate agents, assign tasks, or manage permissions.
 
-**Status:** code-tier work passed in real Codex and Claude Code sessions with normal trust. A
-non-isolated fixture stack passed status, HTTP 200, stop, and cleanup. Full stack use inside
-AgentKeel's isolated host sandbox remains pending because the current profiles block local
-PostgreSQL or process inspection. See [acceptance evidence](docs/acceptance.md).
+**Host support:** runtime operations require ordinary macOS host access. Code-tier work passed in
+real Codex and Claude Code sessions with normal trust. Full stack and simulator work under the
+current restricted host profiles is unsupported: those profiles can block local PostgreSQL,
+process inspection, or CoreSimulator. Run the capability check in the session that will do the
+work. See [acceptance evidence](docs/acceptance.md).
 
 ## Demo
 
 ![Two stack slots running independently, then one stopped while the other keeps running](docs/demo.gif)
 
-Recorded v0.1 demo: the original two-slot lifecycle against a disposable local fixture.
-It predates the current installer and does not demonstrate AgentKeel sandbox support.
+Recorded v0.2 demo: the installed runtime provisions two real local stack slots, then stops
+and releases them independently. Uses disposable PostgreSQL databases and minimal HTTP servers.
 
 ## Start small, add a stack when needed
 
 A code-only worktree is quick and uses no database or ports:
 
 ```bash
+scripts/agent-check.sh --code
 scripts/agent-up.sh feat/my-change
 ```
 
 When the task needs a local server or database, upgrade that worktree in place:
 
 ```bash
+scripts/agent-check.sh
 scripts/agent-up.sh feat/my-change --stack
 ```
 
@@ -86,6 +89,10 @@ The installer and runtime ownership checks need Python 3.10 or newer. Updates ar
 automatic. See the [quickstart](QUICKSTART.md) for installation, migration, updates and removal.
 Project formulas and framework hooks live in `.agent-slots.conf`; review this trusted shell code
 and keep credentials in the project's env file.
+
+For an existing AgentKeel project, the installer preserves its policy and adds only the runtime
+coordination directory to `agentkeel.json` writable paths. AgentKeel task authorization and host
+sandbox access are separate requirements; AgentSlots does not change the host's permissions.
 
 The tool targets macOS system Bash 3.2 and BSD command-line utilities. Stack operations also need
 PostgreSQL client tools and `lsof`. Simulator locking needs Xcode command-line tools and `jq`.

@@ -23,6 +23,9 @@ The installer places the pinned runtime under `.agents/agentslots/`, creates sma
 wrappers, and adds an AgentSlots guidance block to `AGENTS.md` without replacing your other
 instructions. It copies `.agent-slots.conf.example` to `.agent-slots.conf` only when the project
 configuration is missing. It does not fetch or update AgentSlots automatically.
+If `agentkeel.json` exists, it preserves existing policy entries and adds the coordination
+directory to its writable paths. For a custom `AGENT_SIM_LOCK`, pass
+`--coordination-dir /absolute/path/to/its/parent` to both preview and apply.
 
 If the project already has scripts with AgentSlots names, the default is to refuse. Review the
 collision and choose an explicit migration only if those scripts are the ones you want to replace:
@@ -51,6 +54,7 @@ See [configuration](docs/configuration.md) for each variable and hook.
 ## 3. Create a code worktree
 
 ```sh
+scripts/agent-check.sh --code
 scripts/agent-up.sh feat/example
 ```
 
@@ -67,11 +71,10 @@ The state pointer is optional and refers to a document already maintained by the
 
 AgentKeel creates the isolated clone and prints its launch command. AgentSlots attaches runtime
 resources to it; AgentKeel remains responsible for importing reviewed code and removing the clone.
-Before opening the clone, append `~/.agent-slots` to the existing `writable` array in the shared
-checkout's `agentkeel.json`. Merge this entry into the list and preserve every existing path. This
-grants the isolated session access to AgentSlots coordination files: per-repository lifecycle locks
-and the machine-wide simulator lock. Do not add the shared checkout or its `.git` directory. This uses AgentKeel's existing writable-path setting;
-it adds no permission system.
+The installer adds the coordination directory to the shared checkout's existing `agentkeel.json`
+writable paths. Review that change before opening the clone. It covers lifecycle and simulator
+locks; it does not add the shared checkout or its `.git` directory, or grant host process,
+PostgreSQL, or CoreSimulator access.
 
 Use the `task.py` path shown by AgentKeel. The human creates the clone and prints its sandbox
 launch command (choose `--host claude` for Claude Code):
@@ -92,10 +95,16 @@ Then run the sandbox launch command printed by `task.py open`. The human sets `A
 for provisioning; the opened clone record identifies its shared repository for later runtime
 commands.
 
-The shared directory coordinates AgentSlots' per-repository lifecycle locks and the machine-wide
-simulator lock. CoreSimulator services and caches may need additional platform-managed writable
-roots. Simulator boot inside an isolated session has not been verified. Full host sandbox stack
-acceptance remains pending; see [acceptance evidence](docs/acceptance.md).
+Run `scripts/agent-check.sh` inside the launched session before runtime commands, adding
+`--simulator` for device work. Full stack and simulator work under current restricted profiles is
+unsupported when this check fails; see [acceptance evidence](docs/acceptance.md).
+
+Ordinary host access is the supported runtime mode. A Codex named profile with a writable project
+root can still deny `ps` and CoreSimulator. Choosing `permissions.default_permissions` as
+`:danger-full-access` for one explicitly authorized session grants full host access. It is a
+broad permission choice, not a fine-grained runtime grant. AgentSlots never selects it, relaunches
+the host, bypasses trust, or edits global host settings. AgentKeel can authorize a task but cannot
+supply host capabilities its sandbox denies.
 
 When work is ready to finish, `scripts/agent-down.sh <slot>` releases the database and processes
 but retains the opened clone. Run `task.py import <task-id> --sha <full-commit-id>` for the
@@ -107,6 +116,7 @@ remove an AgentKeel clone.
 Upgrade the same worktree when the task needs to run the app or database:
 
 ```sh
+scripts/agent-check.sh
 scripts/agent-up.sh feat/example --stack
 ```
 
@@ -125,6 +135,11 @@ From inside the worktree, start configured servers:
 scripts/agent-dev.sh
 scripts/agent-mobile.sh  # only when a secondary hook is configured
 ```
+
+Before simulator work, run `scripts/agent-check.sh --simulator`. The check lists available devices;
+it does not boot them. Capability checks initialize the configured coordination directory if
+missing and create/remove a private write probe. They do not provision slots, run setup hooks, or
+change host permissions. Exit status is 0 for ready, 1 for a failed prerequisite, and 2 for usage.
 
 ## 5. Pause or finish
 

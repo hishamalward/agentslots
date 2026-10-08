@@ -115,6 +115,7 @@ agent_check_ownership() { agent_identity check "$1"; }
 agent_assert_workspace_owned() { agent_check_ownership "$@"; }
 agent_workspace_ownership() { agent_identity ownership "$1"; }
 agent_stop_port() { agent_identity stop-port "$1" "$2"; }
+agent_assert_port_owned() { agent_identity check-port "$1" "$2"; }
 
 # Only linked worktrees can be deleted here. AgentKeel clones use human import/release.
 agent_workspace_is_clone() { [ -d "$1/.git" ] && [ "$1" != "$(agent_main_root)" ]; }

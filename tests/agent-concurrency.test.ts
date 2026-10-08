@@ -301,6 +301,84 @@ function simulatorMocks(f: ReturnType<typeof fixture>) {
   return { ...mockedEnv(f), AGENT_SIM_LOCK: path.join(f.base, 'host.sim.lock'), AGENT_SIM_PID: String(process.pid) };
 }
 describe('host simulator claims, mocked devices only', () => {
+  it('releases the matching claim while leaving the device running when requested', async () => {
+    const f = fixture(), env = simulatorMocks(f);
+    try {
+      const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      const claim = readFileSync(env.AGENT_SIM_LOCK, 'utf8').match(/^CLAIM=(.+)$/m)![1];
+      mock(f.bin, 'xcrun', 'printf "shutdown\\n" >> "$FIXTURE_BASE/device-effects"');
+      mock(f.bin, 'osascript', 'printf "quit\\n" >> "$FIXTURE_BASE/device-effects"');
+      const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1', '--claim', claim, '--keep-device'], env);
+      expect(released.code, released.stderr).toBe(0);
+      expect(existsSync(env.AGENT_SIM_LOCK)).toBe(false);
+      expect(existsSync(path.join(f.base, 'device-effects'))).toBe(false);
+    } finally { rmSync(f.base, { recursive: true, force: true }); }
+  });
+
+  it('shuts down only the owned device on default release without quitting Simulator', async () => {
+    const f = fixture(), env = simulatorMocks(f);
+    try {
+      const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      mock(f.bin, 'xcrun', 'printf "%s\\n" "$*" >> "$FIXTURE_BASE/device-effects"');
+      mock(f.bin, 'osascript', 'printf "quit\\n" >> "$FIXTURE_BASE/device-effects"');
+      const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1'], env);
+      expect(released.code, released.stderr).toBe(0);
+      expect(existsSync(env.AGENT_SIM_LOCK)).toBe(false);
+      expect(readFileSync(path.join(f.base, 'device-effects'), 'utf8')).toBe('simctl shutdown fixture-device\n');
+    } finally { rmSync(f.base, { recursive: true, force: true }); }
+  });
+
+  it('refuses replacement claims before device effects even with force', async () => {
+    const f = fixture(), env = simulatorMocks(f);
+    try {
+      const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      const lock = readFileSync(env.AGENT_SIM_LOCK, 'utf8');
+      const claim = lock.match(/^CLAIM=(.+)$/m)![1];
+      const replacement = lock.replace(/^CLAIM=.+$/m, 'CLAIM=replacement-owner');
+      writeFileSync(env.AGENT_SIM_LOCK, replacement);
+      mock(f.bin, 'xcrun', 'printf "shutdown\\n" >> "$FIXTURE_BASE/device-effects"');
+      mock(f.bin, 'osascript', 'printf "quit\\n" >> "$FIXTURE_BASE/device-effects"');
+      const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1', '--claim', claim, '--force'], env);
+      expect(released.code).toBe(1);
+      expect(released.stderr).toContain('claim was replaced');
+      expect(readFileSync(env.AGENT_SIM_LOCK, 'utf8')).toBe(replacement);
+      expect(existsSync(path.join(f.base, 'device-effects'))).toBe(false);
+    } finally { rmSync(f.base, { recursive: true, force: true }); }
+  });
+
+  it('retains the claim when shutdown fails and the device is booted or cannot be verified', async () => {
+    for (const state of ['Booted', '']) {
+      const f = fixture(), env = simulatorMocks(f);
+      try {
+        const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
+        expect(acquired.code, acquired.stderr).toBe(0);
+        const original = readFileSync(env.AGENT_SIM_LOCK, 'utf8');
+        mock(f.bin, 'xcrun', 'case "$*" in "simctl shutdown fixture-device") exit 12 ;; "simctl list devices -j") printf "{}\\n" ;; *) exit 14 ;; esac');
+        mock(f.bin, 'jq', `cat >/dev/null; printf '%s\\n' '${state}'`);
+        const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1'], env);
+        expect(released.code).toBe(1);
+        expect(released.stderr).toContain('keeping its claim');
+        expect(readFileSync(env.AGENT_SIM_LOCK, 'utf8')).toBe(original);
+      } finally { rmSync(f.base, { recursive: true, force: true }); }
+    }
+  });
+
+  it('releases the claim after a failed shutdown only when the device is confirmed Shutdown', async () => {
+    const f = fixture(), env = simulatorMocks(f);
+    try {
+      const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      mock(f.bin, 'xcrun', 'case "$*" in "simctl shutdown fixture-device") exit 12 ;; "simctl list devices -j") printf "{}\\n" ;; *) exit 14 ;; esac');
+      mock(f.bin, 'jq', 'cat >/dev/null; printf "Shutdown\\n"');
+      const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1'], env);
+      expect(released.code, released.stderr).toBe(0);
+      expect(existsSync(env.AGENT_SIM_LOCK)).toBe(false);
+    } finally { rmSync(f.base, { recursive: true, force: true }); }
+  });
+
   it('allows one acquisition when different projects race to recover a stale lock', async () => {
     const a = fixture(), b = fixture();
     const env = simulatorMocks(a);

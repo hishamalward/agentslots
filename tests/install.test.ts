@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -109,5 +109,105 @@ describe('pinned runtime installer', () => {
     writeFileSync(path.join(dir, 'README.md'), 'unrelated');
     expect(run(dir, '--uninstall', '--apply').status).toBe(1);
     expect(text(dir, 'README.md')).toBe('unrelated');
+  });
+
+  it('previews the opted-in AgentKeel policy then restores its original bytes and mode', () => {
+    const dir = fixture();
+    const original = '{\r\n "protected_branches": ["main"], "writable": ["~/.npm"]\r\n}';
+    writeFileSync(path.join(dir, 'agentkeel.json'), original);
+    chmodSync(path.join(dir, 'agentkeel.json'), 0o600);
+    expect(run(dir).stdout).toContain('agentkeel.json');
+    expect(text(dir, 'agentkeel.json')).toBe(original);
+    expect(run(dir, '--apply').status).toBe(0);
+    const policy = JSON.parse(text(dir, 'agentkeel.json'));
+    expect(policy).toEqual({ protected_branches: ['main'], writable: ['~/.npm', path.join(homedir(), '.agent-slots')] });
+    expect(statSync(path.join(dir, 'agentkeel.json')).mode & 0o777).toBe(0o600);
+    const installed = text(dir, 'agentkeel.json');
+    expect(run(dir, '--apply').status).toBe(0);
+    expect(text(dir, 'agentkeel.json')).toBe(installed);
+    expect(run(dir, '--uninstall', '--apply').status).toBe(0);
+    expect(text(dir, 'agentkeel.json')).toBe(original);
+    expect(statSync(path.join(dir, 'agentkeel.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('does not create an AgentKeel policy or duplicate an existing coordination grant', () => {
+    const dir = fixture();
+    expect(run(dir, '--apply').status).toBe(0);
+    expect(existsSync(path.join(dir, 'agentkeel.json'))).toBe(false);
+    const original = '{"writable":["~/.agent-slots","~/.npm"],"protected_branches":["main"]}';
+    writeFileSync(path.join(dir, 'agentkeel.json'), original);
+    expect(run(dir, '--apply').status).toBe(0);
+    expect(text(dir, 'agentkeel.json')).toBe(original);
+    expect(run(dir, '--uninstall', '--apply').status).toBe(0);
+    expect(text(dir, 'agentkeel.json')).toBe(original);
+  });
+
+  it('preserves user policy edits across update and uninstall', () => {
+    const dir = fixture();
+    writeFileSync(path.join(dir, 'agentkeel.json'), '{"protected_branches":["main"]}');
+    expect(run(dir, '--apply').status).toBe(0);
+    const edited = JSON.parse(text(dir, 'agentkeel.json'));
+    edited.writable.push('~/.cache/project');
+    edited.protected_branches.push('release');
+    const userBytes = JSON.stringify(edited);
+    writeFileSync(path.join(dir, 'agentkeel.json'), userBytes);
+    expect(run(dir, '--apply').status).toBe(0);
+    expect(run(dir, '--uninstall', '--apply').status).toBe(0);
+    expect(text(dir, 'agentkeel.json')).toBe(userBytes);
+  });
+
+  it('keeps directly edited policies on uninstall', () => {
+    const dir = fixture();
+    writeFileSync(path.join(dir, 'agentkeel.json'), '{}');
+    expect(run(dir, '--apply').status).toBe(0);
+    const edited = '{"writable":["~/.cache/custom"]}';
+    writeFileSync(path.join(dir, 'agentkeel.json'), edited);
+    const result = run(dir, '--uninstall', '--apply');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('keep edited agentkeel.json');
+    expect(text(dir, 'agentkeel.json')).toBe(edited);
+  });
+
+  it('requires an explicit custom lock parent without executing repository shell code', () => {
+    const dir = fixture();
+    const foreign = realpathSync(fixture());
+    const coordination = path.join(foreign, 'coordination');
+    const first = path.join(foreign, 'first');
+    writeFileSync(path.join(dir, 'agentkeel.json'), '{"writable":["~/.npm"]}');
+    writeFileSync(path.join(dir, '.agent-slots.conf'), `AGENT_SIM_LOCK="${coordination}/device.lock"\ntouch "${dir}/executed"\n`);
+    expect(run(dir, '--apply').stderr).toContain('--coordination-dir');
+    expect(existsSync(path.join(dir, 'executed'))).toBe(false);
+    expect(existsSync(path.join(dir, '.agents'))).toBe(false);
+    expect(run(dir, '--coordination-dir', first, '--apply').status).toBe(0);
+    expect(run(dir, '--coordination-dir', coordination, '--apply').status).toBe(0);
+    expect(JSON.parse(text(dir, 'agentkeel.json')).writable).toEqual(['~/.npm', coordination]);
+    expect(existsSync(path.join(dir, 'executed'))).toBe(false);
+    expect(run(dir, '--uninstall', '--apply').status).toBe(0);
+    expect(text(dir, 'agentkeel.json')).toBe('{"writable":["~/.npm"]}');
+  });
+
+  it('refuses malformed policies, symlinks and protected coordination roots before writes', () => {
+    for (const policy of ['{', '[]', '{"writable":null}', '{"writable":[7]}']) {
+      const dir = fixture();
+      writeFileSync(path.join(dir, 'agentkeel.json'), policy);
+      expect(run(dir, '--apply').stderr).toContain('invalid agentkeel.json');
+      expect(existsSync(path.join(dir, '.agents'))).toBe(false);
+      expect(text(dir, 'agentkeel.json')).toBe(policy);
+    }
+    const dir = fixture();
+    const foreign = realpathSync(fixture());
+    writeFileSync(path.join(dir, 'agentkeel.json'), '{}');
+    symlinkSync(foreign, path.join(foreign, 'linked'));
+    for (const directory of [homedir(), '/', realpathSync(dir), path.join(realpathSync(dir), '.git'),
+      path.join(homedir(), '.agentkeel'), path.join(foreign, 'linked', 'coordination')]) {
+      expect(run(dir, '--coordination-dir', directory, '--apply').status).toBe(1);
+      expect(existsSync(path.join(dir, '.agents'))).toBe(false);
+      expect(text(dir, 'agentkeel.json')).toBe('{}');
+    }
+    rmSync(path.join(dir, 'agentkeel.json'));
+    writeFileSync(path.join(foreign, 'agentkeel.json'), '{}');
+    symlinkSync(path.join(foreign, 'agentkeel.json'), path.join(dir, 'agentkeel.json'));
+    expect(run(dir, '--apply').stderr).toContain('refusing symlink');
+    expect(text(foreign, 'agentkeel.json')).toBe('{}');
   });
 });

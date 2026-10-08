@@ -125,6 +125,30 @@ describe('process teardown identity', () => {
     const result = processCase(`m.listeners=lambda _: [11,12]\nm.identity=lambda pid: ('/owned', 'start') if pid==11 else ('/foreign', 'start')\nm.os.kill=lambda *args: (_ for _ in ()).throw(AssertionError('must not signal'))\ntry:m.stop('3100','/owned')\nexcept m.Unknown as e:print(e)`);
     expect(result.status).toBe(0); expect(result.stdout).toContain('foreign or unidentified');
   });
+  it('requires a live listener for read-only reuse and rejects empty, foreign and unidentified ports', () => {
+    const result = processCase(`m.os.kill=lambda *args: (_ for _ in ()).throw(AssertionError('read-only check must not signal'))
+for pids,token,expected in [([],None,'no listener'),([11],('/foreign','start'),'foreign or unidentified'),([11],None,'foreign or unidentified')]:
+ m.listeners=lambda _:pids
+ m.identity=lambda _:token
+ try:m.owned_listeners('8181','/owned',require_listener=True)
+ except m.Unknown as e:assert expected in str(e),str(e)
+ else:raise AssertionError('invalid listener was accepted')
+print('all invalid listeners refused')`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('all invalid listeners refused');
+  });
+  it('accepts all owned listeners without signals and keeps path boundaries strict', () => {
+    const result = processCase(`m.os.kill=lambda *args: (_ for _ in ()).throw(AssertionError('read-only check must not signal'))
+m.listeners=lambda _: [11,12]
+m.identity=lambda pid: ('/owned','first') if pid==11 else ('/owned/apps/mobile','second')
+assert set(m.owned_listeners('8181','/owned',require_listener=True))=={11,12}
+m.identity=lambda pid: ('/owned','first') if pid==11 else ('/owned-foreign','second')
+try:m.owned_listeners('8181','/owned',require_listener=True)
+except m.Unknown as e:print(e)
+else:raise AssertionError('a foreign listener was accepted')`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('foreign or unidentified');
+  });
   it('never signals a replacement PID found after TERM', () => {
     const result = processCase(`m.listeners=lambda _: [11]\nreads=iter([('/owned','first'),('/owned','first'),('/owned','replacement')])\nm.identity=lambda _:next(reads)\nsent=[]\nm.os.kill=lambda pid,sig:sent.append((pid,sig))\ntry:m.stop('3100','/owned')\nexcept m.Unknown as e:print(e)\nassert sent==[(11,signal.SIGTERM)],sent`);
     expect(result.status).toBe(0); expect(result.stdout).toContain('replacement was not killed');

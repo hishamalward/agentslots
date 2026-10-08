@@ -5,9 +5,11 @@ must be run against the exact release revision.
 
 ## 0.2.0 (unreleased)
 
-- Adopted AgentSlots as the display name while retaining the `agent-slots` repository and package.
+- Adopted AgentSlots as the display name and `agentslots` as the repository and package name.
 - Added a preview-first installer for a pinned local runtime and thin project wrappers.
-- Added ownership checks for shared provisioning and simulator resources.
+- Added ownership checks for shared provisioning, process identity, Metro reuse and simulator resources.
+- Added onboarding for AgentKeel coordination access and a runtime capability check.
+- Made simulator release claim-aware, with a keep-device option and retained ownership on shutdown failure.
 - Replaced generated task handovers with an optional pointer to an existing state document.
 - Added concise Markdown contributor guidance and original SVG brand artwork.
 
