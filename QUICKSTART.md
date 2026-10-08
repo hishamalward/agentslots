@@ -78,7 +78,10 @@ The model chooses commands; the host program and its sandbox decide whether they
 
 1. Use a task worktree with the project's dependencies, local database and simulator app ready.
 2. Start a session whose host permissions allow runtime operations. The tested Claude session
-   already had host access. For the tested Codex CLI, the per-session command was:
+   already had host access. In Codex, type `/permissions`, choose **Full access**, and accept
+   its confirmation. This gives the active session the broad host access needed for runtime work.
+   The [Codex permissions guide](https://learn.chatgpt.com/docs/sandboxing#how-permissions-work)
+   documents this picker. Our live acceptance used the equivalent host-access setting at launch:
 
    ```sh
    cd /path/to/task-worktree
@@ -87,7 +90,7 @@ The model chooses commands; the host program and its sandbox decide whether they
 
    This gives that session broad host access, not just simulator access. It removes the shell's
    sandbox containment for that session. Normal AgentKeel hooks and saved hook trust remain active;
-   task permissions still apply. It does not edit global settings or configure future sessions.
+   task permissions still apply. The launch command does not edit global settings or configure future sessions.
    Use it only when that broader access is explicitly authorized.
 3. Have the agent declare its AgentKeel task if applicable, then run
    `scripts/agent-check.sh --simulator` **through the agent's shell tool**. Running the check in

@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/hishamalward/agentslots/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/hishamalward/agentslots?color=087e82"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/hishamalward/agentslots?color=087e82"></a>
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-152f38">
   <img alt="Bash 3.2" src="https://img.shields.io/badge/Bash-3.2-152f38">
 </p>
@@ -16,7 +17,7 @@ It is one small runtime tool. It does not orchestrate agents, assign tasks, or m
 
 ![Two stack slots running independently, then one stopped while the other keeps running](docs/demo.gif)
 
-Recorded v0.2 demo: the installed runtime provisions two real local stack slots, then stops
+The installed runtime provisions two real local stack slots, then stops
 and releases them independently. Uses disposable PostgreSQL databases and minimal HTTP servers.
 
 ## Start small, add a stack when needed
