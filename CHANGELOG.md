@@ -1,9 +1,9 @@
 # Changelog
 
-All notable changes are documented here. Candidate checks are listed in `PRE-RELEASE.md` and
+All notable changes are documented here. Release checks are listed in `PRE-RELEASE.md` and
 must be run against the exact release revision.
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 - Adopted AgentSlots as the display name and `agentslots` as the repository and package name.
 - Added a preview-first installer for a pinned local runtime and thin project wrappers.

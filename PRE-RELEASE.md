@@ -6,9 +6,9 @@ The 0.1 release has historical evidence for shell and TypeScript checks, queue i
 live two-slot run. Dates, revisions, and limits are recorded in [acceptance.md](docs/acceptance.md).
 Those results describe v0.1.0 and do not verify a later candidate.
 
-## 0.2.0 candidate release checks
+## Release checks
 
-Before publishing a candidate:
+Before publishing a release:
 
 - Run `npm ci`, `npm run check`, `git diff --check`, and `git fsck --full` from a clean checkout.
 - Exercise the installer preview, apply, update refusal for a modified managed file, adoption
@@ -29,7 +29,8 @@ Before publishing a candidate:
   switch profiles, bypass trust, or weaken ownership checks to make a run pass.
 - Verify the installer uses the reviewed source revision and does not fetch an unpinned runtime.
 
-The 0.2.0 release is pending until these checks are run and recorded against its exact commit.
+Record these checks against the release commit. When only documentation changes after a runtime
+acceptance run, identify the tested runtime revision and verify that its executable files are unchanged.
 
 ## Publishing
 

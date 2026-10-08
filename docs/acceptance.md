@@ -1,6 +1,6 @@
 # Acceptance results
 
-## Current 0.2.0 candidate
+## Version 0.2.0
 
 Runtime revision `dbc09195e649fac9664439ab47cbfb14642efdc1`, verified 2026-10-08.
 Documentation-only follow-ups do not change these tested runtime bytes.
