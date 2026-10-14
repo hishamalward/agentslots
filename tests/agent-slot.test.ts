@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
 import {
-  existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, statSync,
+  existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, statSync, cpSync, realpathSync,
 } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -46,6 +46,28 @@ describe('agent-slot.sh exists and is loadable', () => {
     // Each executable sets its own options instead.
     const body = execFileSync('cat', [LIB], { encoding: 'utf8' });
     expect(body).not.toMatch(/^\s*set -/m);
+  });
+});
+
+describe('lock argument forwarding under Bash 3.2', () => {
+  it('preserves a claim containing spaces through sim-lock re-execution', () => {
+    const base = realpathSync(mkdtempSync(path.join(tmpdir(), 'agent-lock-forward-')));
+    const repo = path.join(base, 'repo');
+    const lock = path.join(base, 'sim.lock');
+    const claim = 'claim with spaces';
+    try {
+      mkdirSync(repo);
+      execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+      cpSync(path.join(REPO, 'scripts'), path.join(repo, 'scripts'), { recursive: true });
+      writeFileSync(path.join(repo, '.agent-slots.conf'), `AGENT_SIM_LOCK="${lock}"\n`);
+      writeFileSync(lock, `SLOT=1\nPID=${process.pid}\nUDID=\nCLAIM=${claim}\nREPO=${repo}\nWORKSPACE=${repo}\n`);
+      expect(execFileSync('/bin/bash', ['scripts/sim-lock.sh', 'release', '1', '--claim', claim, '--keep-device'], {
+        cwd: repo, encoding: 'utf8',
+      })).toContain('sim-lock: released');
+      expect(existsSync(lock)).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

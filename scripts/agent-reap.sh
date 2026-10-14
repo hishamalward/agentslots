@@ -23,7 +23,7 @@ case "${1:-}" in
   *) echo "usage: agent-reap.sh [--yes]" >&2; exit 2 ;;
 esac
 
-agent_repo_lock "${ORIGINAL_ARGS[@]}"
+agent_repo_lock ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
 agent_postgres_reachable || { echo "agent-reap: PostgreSQL is unreachable for role $AGENT_PG_USER" >&2; exit 1; }
 
 MAIN=$(agent_main_root)

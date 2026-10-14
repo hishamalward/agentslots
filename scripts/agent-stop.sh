@@ -20,7 +20,7 @@ SLOT="$1"
 agent_slot_valid "$SLOT" || { echo "agent-stop: slot must be in 0..$AGENT_SLOT_MAX, got '$SLOT'" >&2; exit 2; }
 [ "$SLOT" != "0" ] || { echo "agent-stop: refusing to stop slot 0, the main tree. Stop it by hand." >&2; exit 1; }
 
-agent_repo_lock "${ORIGINAL_ARGS[@]}"
+agent_repo_lock ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
 
 WT=$(agent_worktree_for_slot "$SLOT") || {
   echo "agent-stop: refusing slot $SLOT because no identifiable workspace claims it." >&2

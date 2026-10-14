@@ -58,7 +58,7 @@ claim_is_ours() { [ "$(lock_get CLAIM)" = "$CLAIM" ]; }
 # Serialize stale checks, claims, device work, updates and release on the host-wide lock.
 # Keep the mutex file forever: unlinking it would let a second inode acquire a second lock.
 mkdir -p "$LOCK_DIR"
-agent_lock_enter "$LOCK.mutex" "${ORIGINAL_ARGS[@]}"
+agent_lock_enter "$LOCK.mutex" ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
 
 held_for() {
   local acq now

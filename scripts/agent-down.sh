@@ -25,7 +25,7 @@ done
 [ -n "$SLOT" ] || { echo "usage: agent-down.sh <slot>" >&2; exit 2; }
 agent_slot_valid "$SLOT" || { echo "agent-down: slot must be in 0..$AGENT_SLOT_MAX, got '$SLOT'" >&2; exit 2; }
 [ "$SLOT" != "0" ] || { echo "agent-down: refusing to destroy slot 0, the main tree." >&2; exit 1; }
-agent_repo_lock "${ORIGINAL_ARGS[@]}"
+agent_repo_lock ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
 agent_postgres_reachable || { echo "agent-down: PostgreSQL is unreachable for role $AGENT_PG_USER; nothing was removed" >&2; exit 1; }
 
 MAIN=$(agent_main_root)

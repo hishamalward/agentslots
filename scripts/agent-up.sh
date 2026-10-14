@@ -72,7 +72,7 @@ else
   WT=$(agent_worktree_path "$BRANCH")
 fi
 # One lifecycle lock covers preflight, slot selection and setup against concurrent cleanup.
-agent_repo_lock "${ORIGINAL_ARGS[@]}"
+agent_repo_lock ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
 MAIN_BRANCH=$(agent_main_branch)
 ENV_PATH=$(agent_env_path "$WT")
 for pointer in "$STATE" "$HANDOVER" "$SPEC"; do

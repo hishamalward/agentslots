@@ -83,6 +83,24 @@ async function waitForFile(file: string) {
 }
 
 describe('provisioning ownership and serialization', () => {
+  it('reports a bare reap dry run and rejects missing required arguments', async () => {
+    const f = fixture();
+    mock(f.bin, 'psql', 'case "$*" in *"select 1 from pg_database"*) ;; *"select 1") printf "1\\n" ;; esac');
+    mock(f.bin, 'lsof', 'exit 1');
+    mock(f.bin, 'dropdb', 'exit 99');
+    try {
+      const env = mockedEnv(f);
+      const reap = await run(f.repo, ['scripts/agent-reap.sh'], env);
+      expect(reap.code, reap.stderr).toBe(0);
+      expect(reap.stdout).toContain('agent-reap: no orphans found.');
+      for (const script of ['agent-up.sh', 'agent-stop.sh', 'agent-down.sh', 'sim-lock.sh']) {
+        const missing = await run(f.repo, [`scripts/${script}`], env);
+        expect(missing.code, script).not.toBe(0);
+        expect(missing.stderr, script).toContain('usage:');
+      }
+    } finally { rmSync(f.base, { recursive: true, force: true }); }
+  });
+
   it('preserves a competing winner created exactly at branch creation', async () => {
     const f = fixture();
     mock(f.bin, 'git', `if [ "$3" = branch ] && [ "$4" = feat/race ]; then
