@@ -48,6 +48,14 @@ describe('agent-up.sh refusal paths', () => {
     expect(worktreeList()).toBe(before);
   });
 
+  it('with --prepare but no branch, still exits before provisioning', () => {
+    const before = worktreeList();
+    const r = run(['--prepare']);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/^usage: agent-up\.sh/m);
+    expect(worktreeList()).toBe(before);
+  });
+
   it('with an unknown option, exits 2 and names the option', () => {
     const before = worktreeList();
     const r = run(['--not-a-real-flag', 'some-branch']);

@@ -61,6 +61,9 @@ describe('project configuration', () => {
   });
 
   it('rejects invalid slot and path configuration before use', () => {
+    expect(source('printf %s "$AGENT_PREPARE_DEFAULT"')).toBe('eager');
+    expect(source('printf %s "$AGENT_PREPARE_DEFAULT"', { AGENT_PREPARE_DEFAULT: 'deferred' })).toBe('deferred');
+    expect(() => source(':', { AGENT_PREPARE_DEFAULT: 'sometimes' })).toThrow();
     expect(() => source(':', { AGENT_SLOT_MAX: '0' })).toThrow();
     expect(() => source(':', { AGENT_SLOT_MAX: '99999999999999999999' })).toThrow();
     expect(() => source(':', { AGENT_APP_DIR: '../outside' })).toThrow();

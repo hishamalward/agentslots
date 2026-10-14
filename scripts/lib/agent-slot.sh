@@ -26,6 +26,7 @@ AGENT_METRO_PORT_BASE="${AGENT_METRO_PORT_BASE:-8081}"
 AGENT_PORT_STEP="${AGENT_PORT_STEP:-100}"
 AGENT_SLOT_MAX="${AGENT_SLOT_MAX:-9}"
 AGENT_WORKTREE_PREFIX="${AGENT_WORKTREE_PREFIX:-}"
+AGENT_PREPARE_DEFAULT="${AGENT_PREPARE_DEFAULT:-eager}"
 AGENT_APP_DIR="${AGENT_APP_DIR:-.}"
 AGENT_MOBILE_DIR="${AGENT_MOBILE_DIR:-}"
 AGENT_ENV_FILE="${AGENT_ENV_FILE:-.env}"
@@ -274,6 +275,7 @@ agent_start_mobile() {
 }
 
 agent_dependencies_stale() { return 1; }
+agent_dependencies_present() { return 1; }
 agent_after_slot_env() { :; }
 
 # Reusable helper for npm projects whose node_modules trees can safely be copied. pnpm and other
@@ -316,6 +318,7 @@ agent_relative_path_valid() {
 
 agent_config_validate() {
   local value n port db schema seen_ports=" " seen_dbs=" " seen_schemas=" "
+  case "$AGENT_PREPARE_DEFAULT" in eager|deferred) ;; *) echo "agent-slots: AGENT_PREPARE_DEFAULT must be eager or deferred" >&2; return 1 ;; esac
   case "$AGENT_SLOT_MAX" in ""|*[!0-9]*|0|0[0-9]*) echo "agent-slots: AGENT_SLOT_MAX must be a positive integer without leading zeroes" >&2; return 1 ;; esac
   { [ "${#AGENT_SLOT_MAX}" -le 2 ] && [ "$AGENT_SLOT_MAX" -le 99 ]; } \
     || { echo "agent-slots: AGENT_SLOT_MAX must be <= 99" >&2; return 1; }

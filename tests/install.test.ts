@@ -33,6 +33,7 @@ describe('pinned runtime installer', () => {
     expect(run(dir, '--apply').status).toBe(0);
     expect(text(dir, '.agent-slots.conf')).toBe('AGENT_PROJECT_SLUG=custom\n');
     expect(text(dir, 'AGENTS.md')).toContain('# Existing instructions');
+    expect(text(dir, 'AGENTS.md')).toContain('use `--prepare` before direct npm commands');
     expect(text(dir, 'scripts/agent-up.sh')).toContain('.agents/agentslots/scripts/agent-up.sh');
     expect(existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false);
     expect(existsSync(path.join(dir, '.agents/agentslots/scripts/queue-isolation-check.mjs'))).toBe(true);

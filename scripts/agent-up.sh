@@ -23,13 +23,14 @@ agent_require_commands git
 
 usage() {
   cat >&2 <<'EOF'
-usage: agent-up.sh <branch> [--stack] [--workspace <path>] [--state <path>] [--handover <path>] [--spec <path>]
+usage: agent-up.sh <branch> [--prepare] [--stack] [--workspace <path>] [--state <path>] [--handover <path>] [--spec <path>]
 
   <branch>      the branch to work on. Created from the configured main branch if absent.
   --stack       also claim a slot: a database, ports and the configured env file. Run it on
                 an existing code-tier worktree to upgrade in place (spec 4.3).
+  --prepare     run the project setup hook when needed, without claiming a slot.
   --workspace   attach a stack to an existing owned workspace, including an independent clone.
-                Requires --stack and AGENT_REPO_ROOT naming the shared configuration checkout.
+                Requires --stack or --prepare and AGENT_REPO_ROOT naming the shared checkout.
   --state       record an existing repo-relative state page in .agent. No documents are created.
   --handover    compatibility pointer to an existing handover. Optional.
   --spec        compatibility pointer to an existing design spec. Optional.
@@ -45,6 +46,7 @@ STATE=""
 WORKSPACE=""
 SPEC=""
 STACK=0
+PREPARE=0
 UPGRADE=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,6 +55,7 @@ while [ $# -gt 0 ]; do
     --handover) [ $# -ge 2 ] || usage; HANDOVER="$2"; shift 2 ;;
     --spec)     [ $# -ge 2 ] || usage; SPEC="$2";     shift 2 ;;
     --stack)    STACK=1; shift ;;
+    --prepare)  PREPARE=1; shift ;;
     -h|--help)  usage ;;
     -*)         echo "agent-up: unknown option: $1" >&2; usage ;;
     *)          [ -z "$BRANCH" ] || { echo "agent-up: unexpected argument: $1" >&2; usage; }
@@ -64,7 +67,7 @@ git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || fail "invalid branch 
 
 MAIN=$(agent_main_root)
 if [ -n "$WORKSPACE" ]; then
-  [ "$STACK" = "1" ] || fail "--workspace requires --stack"
+  [ "$STACK" = "1" ] || [ "$PREPARE" = "1" ] || fail "--workspace requires --stack or --prepare"
   [ -n "${AGENT_REPO_ROOT:-}" ] || fail "--workspace requires AGENT_REPO_ROOT"
   WT=$(cd "$WORKSPACE" 2>/dev/null && pwd -P) || fail "workspace does not exist: $WORKSPACE"
   [ "$WT" != "$MAIN" ] || fail "--workspace cannot attach the canonical shared checkout; use an owned task workspace"
@@ -88,19 +91,27 @@ git -C "$MAIN" check-ignore -q .agent \
 
 # --- preflight, spec 4.3 ---------------------------------------------------
 
-# 1. the worktree path is free, OR this is a --stack upgrade of an existing code-tier worktree.
+# 1. the worktree path is free, OR this is preparation/upgrade of an existing owned worktree.
 #    Choosing the cheap tier first is never a decision you have to undo (spec 4.3).
 if [ -e "$WT" ]; then
-  [ "$STACK" = "1" ] || fail "$WT already exists. Use it, or remove it first."
+  [ "$STACK" = "1" ] || [ "$PREPARE" = "1" ] || fail "$WT already exists. Use it, or remove it first."
   [ "$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null || true)" = "$WT" ] \
     || fail "$WT exists but is not the expected Git worktree. Refusing to upgrade it."
   [ "$(git -C "$WT" symbolic-ref -q --short HEAD 2>/dev/null || true)" = "$BRANCH" ] \
     || fail "$WT is not checked out on $BRANCH. Refusing to upgrade it."
   agent_check_ownership "$WT" "upgrade workspace" || fail "workspace is not owned by this task/session: $WT"
   tier=$(agent_tier_of_worktree "$WT")
-  [ "$tier" = "code" ] || fail "$WT already exists and is $tier tier, not code. Nothing to upgrade."
+  if [ "$STACK" = "1" ]; then
+    [ "$tier" = "code" ] || fail "$WT already exists and is $tier tier, not code. Nothing to upgrade."
+  else
+    [ "$tier" != "main" ] || fail "refusing to prepare the main worktree"
+  fi
   UPGRADE=1
-  echo "agent-up: upgrading the existing code-tier worktree at $WT"
+  if [ "$STACK" = "1" ]; then
+    echo "agent-up: upgrading the existing code-tier worktree at $WT"
+  else
+    echo "agent-up: preparing the existing worktree at $WT"
+  fi
 fi
 
 # 2. the branch is not already checked out in another worktree
@@ -157,7 +168,7 @@ fi
 # --- provision -------------------------------------------------------------
 
 if [ "$UPGRADE" = "1" ]; then
-  echo "agent-up: claiming a slot for $BRANCH at $WT"
+  [ "$STACK" = "0" ] || echo "agent-up: claiming a slot for $BRANCH at $WT"
 elif [ "$STACK" = "1" ]; then
   echo "agent-up: provisioning stack tier for $BRANCH at $WT"
 else
@@ -265,13 +276,24 @@ if [ "$UPGRADE" = "0" ]; then
     [ -z "$SPEC" ] || echo "SPEC=$SPEC"
   } > "$WT/.agent"
 
-  echo "agent-up: running the project worktree-setup hook"
-  agent_prepare_worktree "$MAIN" "$WT"
-elif [ -n "$WORKSPACE" ] && agent_workspace_is_clone "$WT"; then
-  # An opened independent clone has not gone through code-tier worktree preparation.
-  # Prepare its dependencies/client too, while preserving the externally owned clone on failure.
-  echo "agent-up: preparing the attached clone with the project setup hook"
-  agent_prepare_worktree "$MAIN" "$WT"
+fi
+
+PREPARE_NOW=0
+if [ "$PREPARE" = "1" ] || { [ "$UPGRADE" = "0" ] && [ "$AGENT_PREPARE_DEFAULT" = eager ]; }; then
+  PREPARE_NOW=1
+elif [ "$STACK" = "1" ] && { [ "$AGENT_PREPARE_DEFAULT" = deferred ] || agent_workspace_is_clone "$WT"; }; then
+  PREPARE_NOW=1
+fi
+if [ "$PREPARE_NOW" = "1" ]; then
+  if agent_dependencies_present "$WT"; then
+    if agent_dependencies_stale "$WT"; then
+      rollback
+      fail "dependencies MAY BE STALE; run the project dependency-install command before retrying"
+    fi
+  else
+    echo "agent-up: running the project worktree-setup hook"
+    agent_prepare_worktree "$MAIN" "$WT"
+  fi
 fi
 
 if [ "$STACK" = "1" ]; then
@@ -412,6 +434,8 @@ agent-up: stack tier ready.
 Start the server: scripts/agent-dev.sh (uses the project hook in .agent-slots.conf)
 Stop when you pause, down when you merge: scripts/agent-stop.sh $SLOT / scripts/agent-down.sh $SLOT
 EOF
+elif [ "$UPGRADE" = "1" ] && [ "$tier" = stack ]; then
+  echo "agent-up: dependencies ready at $WT; existing stack slot retained."
 else
   cat <<EOF
 
@@ -420,7 +444,11 @@ agent-up: code tier ready.
   branch    $BRANCH
   tier      code (no slot, no database, no ports)
 
-Tests run here now: $AGENT_TEST_COMMAND
-To boot a server, upgrade in place: scripts/agent-up.sh $BRANCH --stack
 EOF
+  if [ "$AGENT_PREPARE_DEFAULT" = deferred ] && ! agent_dependencies_present "$WT"; then
+    echo "Before direct npm/test commands, prepare dependencies: scripts/agent-up.sh $BRANCH --prepare"
+  else
+    echo "Tests run here now: $AGENT_TEST_COMMAND"
+  fi
+  echo "To boot a server, upgrade in place: scripts/agent-up.sh $BRANCH --stack"
 fi

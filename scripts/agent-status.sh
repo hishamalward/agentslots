@@ -72,7 +72,9 @@ printf '%s\n' "$WORKSPACES" | while read -r wt; do
   # node_modules cloned at provision time is a snapshot, so a rebase onto a main that changed
   # dependencies leaves it behind the lockfile. The symptom is an import or version error that
   # looks like a code bug, so it is worth naming before the tests run (spec 4.3).
-  if agent_dependencies_stale "$wt"; then
+  if [ "$wt" != "$MAIN" ] && [ "$AGENT_PREPARE_DEFAULT" = deferred ] && ! agent_dependencies_present "$wt"; then
+    printf '    dependencies not prepared; run agent-up.sh %s --prepare before direct npm commands\n' "$branch"
+  elif agent_dependencies_stale "$wt"; then
     printf '    dependencies MAY BE STALE; run the project dependency-install command\n'
   fi
 

@@ -28,6 +28,7 @@ boundaries.
 | `AGENT_PORT_STEP` | `100` | Per-slot port increment |
 | `AGENT_SLOT_MAX` | `9` | Highest assignable slot, at most 99 |
 | `AGENT_WORKTREE_PREFIX` | `<repo-name>-` | Prefix for sibling worktree directories |
+| `AGENT_PREPARE_DEFAULT` | `eager` | Set to `deferred` to skip setup on new code-only trees; `--prepare` or `--stack` runs it |
 | `AGENT_SIM_LOCK` | `~/.agent-slots/simulator.lock` | Machine-wide exclusive-device lock |
 
 The environment-key and queue-schema variables are documented inline in
@@ -44,18 +45,26 @@ provision or destroy anything.
 
 ## Project hooks
 
-The config may redefine five hooks:
+The config may redefine six hooks:
 
 - `agent_prepare_worktree <main> <worktree>` installs or clones dependencies and runs codegen.
 - `agent_start_web <worktree> <port> [args...]` starts the web server.
 - `agent_start_mobile <worktree> <port> [args...]` starts the optional secondary server.
 - `agent_dependencies_stale <worktree>` returns success when dependencies need refreshing.
+- `agent_dependencies_present <worktree>` returns success when the project's generated dependencies
+  are present. Define this when using deferred preparation; the generic hook reports absent.
 - `agent_after_slot_env <env-file> <slot> <web-port>` prints project-specific warnings after the
   slot env is written.
 
 The generic setup hook is a no-op, so code-tier worktrees work for repositories without a build
 step. Server hooks fail with an actionable message until configured. The example provides the
 original Next.js, Prisma, Expo, and npm-workspaces behavior.
+
+Unset preparation mode keeps eager setup for existing projects. With `deferred`, code-only creation
+skips the setup hook; run `agent-up.sh <branch> --prepare` before direct npm commands or tests that
+need dependencies. Repeating `--prepare` on an already prepared tree does nothing. `--stack` prepares
+before using the application or database. A tree with present but stale dependencies is left intact
+and reports the project dependency-install command for manual refresh.
 
 ## AgentKeel opened clones
 

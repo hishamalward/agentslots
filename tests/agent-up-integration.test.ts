@@ -96,9 +96,9 @@ esac
   return { ...fixture, bin, dbState };
 }
 
-function runUp(repo: string, branch: string): { status: number; stderr: string } {
+function runUp(repo: string, branch: string, flags: string[] = []): { status: number; stderr: string } {
   try {
-    execFileSync('bash', ['scripts/agent-up.sh', branch], { cwd: repo, encoding: 'utf8' });
+    execFileSync('bash', ['scripts/agent-up.sh', branch, ...flags], { cwd: repo, encoding: 'utf8' });
     return { status: 0, stderr: '' };
   } catch (error: any) {
     return { status: error.status, stderr: error.stderr?.toString() ?? '' };
@@ -106,6 +106,40 @@ function runUp(repo: string, branch: string): { status: number; stderr: string }
 }
 
 describe('agent-up code-tier integration', () => {
+  it('defers setup when configured, prepares once, and reports stale dependencies', () => {
+    const fixture = createFixture('printf run >> "$2/prepare-count"; touch "$2/prepared"');
+    const wt = path.join(fixture.base, 'fixture-deferred');
+    writeFileSync(path.join(fixture.repo, '.agent-slots.conf'),
+      readFileSync(path.join(fixture.repo, '.agent-slots.conf'), 'utf8') +
+      '\nAGENT_PREPARE_DEFAULT=deferred\nagent_dependencies_present() { [ -f "$1/prepared" ]; }\nagent_dependencies_stale() { [ -f "$1/stale" ]; }\n');
+    try {
+      expect(runUp(fixture.repo, 'feat/deferred').status).toBe(0);
+      expect(existsSync(path.join(wt, 'prepared'))).toBe(false);
+      expect(runUp(fixture.repo, 'feat/deferred', ['--prepare']).status).toBe(0);
+      expect(readFileSync(path.join(wt, 'prepare-count'), 'utf8')).toBe('run');
+      expect(existsSync(path.join(wt, '.env'))).toBe(false);
+      expect(runUp(fixture.repo, 'feat/deferred', ['--prepare']).status).toBe(0);
+      expect(readFileSync(path.join(wt, 'prepare-count'), 'utf8')).toBe('run');
+      writeFileSync(path.join(wt, 'stale'), 'yes');
+      const stale = runUp(fixture.repo, 'feat/deferred', ['--prepare']);
+      expect(stale.status).toBe(1);
+      expect(stale.stderr).toContain('dependencies MAY BE STALE');
+      expect(readFileSync(path.join(wt, 'prepare-count'), 'utf8')).toBe('run');
+    } finally { rmSync(fixture.base, { recursive: true, force: true }); }
+  });
+
+  it('preserves an existing deferred worktree when preparation fails', () => {
+    const fixture = createFixture('return 23');
+    const wt = path.join(fixture.base, 'fixture-prepare-fails');
+    writeFileSync(path.join(fixture.repo, '.agent-slots.conf'),
+      readFileSync(path.join(fixture.repo, '.agent-slots.conf'), 'utf8') + '\nAGENT_PREPARE_DEFAULT=deferred\n');
+    try {
+      expect(runUp(fixture.repo, 'feat/prepare-fails').status).toBe(0);
+      expect(runUp(fixture.repo, 'feat/prepare-fails', ['--prepare']).status).toBe(23);
+      expect(existsSync(path.join(wt, '.agent'))).toBe(true);
+    } finally { rmSync(fixture.base, { recursive: true, force: true }); }
+  });
+
   it('creates a self-contained worktree with project hooks and no authored documents', () => {
     const fixture = createFixture(':');
     const wt = path.join(fixture.base, 'fixture-happy-path');
@@ -188,6 +222,35 @@ describe('agent-up code-tier integration', () => {
       } catch {
         // The branch can be absent when provisioning failed before branch creation.
       }
+      rmSync(fixture.base, { recursive: true, force: true });
+    }
+  });
+
+  it('prepares a deferred code tree before upgrading it to a stack', () => {
+    const fixture = createStackFixture();
+    const wt = path.join(fixture.base, 'fixture-deferred-stack');
+    const prepared = path.join(fixture.base, 'prepared');
+    writeFileSync(path.join(fixture.repo, '.agent-slots.conf'),
+      readFileSync(path.join(fixture.repo, '.agent-slots.conf'), 'utf8') +
+      '\nAGENT_PREPARE_DEFAULT=deferred\nagent_dependencies_present() { [ -f "$MOCK_PREPARED" ]; }\nagent_prepare_worktree() { touch "$MOCK_PREPARED"; }\n');
+    const env = { ...process.env, PATH: `${fixture.bin}:${process.env.PATH}`,
+      MOCK_DB_STATE: fixture.dbState, MOCK_PREPARED: prepared };
+    try {
+      execFileSync('bash', ['scripts/agent-up.sh', 'feat/deferred-stack'], { cwd: fixture.repo, env });
+      expect(existsSync(prepared)).toBe(false);
+      const status = execFileSync('bash', ['scripts/agent-status.sh'], {
+        cwd: fixture.repo, env, encoding: 'utf8',
+      });
+      expect(status).toContain('dependencies not prepared');
+      execFileSync('bash', ['scripts/agent-up.sh', 'feat/deferred-stack', '--stack'], {
+        cwd: fixture.repo, env,
+      });
+      expect(existsSync(prepared)).toBe(true);
+      expect(readFileSync(path.join(wt, '.env'), 'utf8')).toContain('AGENT_SLOT=1');
+      execFileSync('bash', ['scripts/agent-down.sh', '1'], { cwd: fixture.repo, env });
+      expect(existsSync(wt)).toBe(false);
+    } finally {
+      if (existsSync(wt)) execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: fixture.repo });
       rmSync(fixture.base, { recursive: true, force: true });
     }
   });

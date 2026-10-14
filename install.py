@@ -27,7 +27,8 @@ BLOCK = (b"<!-- agentslots:start -->\n"
          b"Run `scripts/agent-check.sh --code` before code-only work; run it without\n"
          b"`--code` before adding a stack, and add `--simulator` for device work.\n"
          b"Run `scripts/agent-status.sh` before provisioning or cleanup. Start code-only with\n"
-         b"`scripts/agent-up.sh <branch>`; add `--stack` only for a running local app.\n"
+         b"`scripts/agent-up.sh <branch>`; use `--prepare` before direct npm commands when\n"
+         b"setup is deferred, or `--stack` when a running local app needs a slot.\n"
          b"Stop and release only this task's resources. AgentKeel owns its isolated clones.\n"
          b"<!-- agentslots:end -->\n")
 

@@ -29,6 +29,10 @@ scripts/agent-check.sh --code
 scripts/agent-up.sh feat/my-change
 ```
 
+Projects that set `AGENT_PREPARE_DEFAULT=deferred` create files without dependencies. Run
+`scripts/agent-up.sh feat/my-change --prepare` before direct npm commands or tests that need them.
+`--stack` prepares automatically. Projects without that setting keep eager setup.
+
 When the task needs a local server or database, upgrade that worktree in place:
 
 ```bash
