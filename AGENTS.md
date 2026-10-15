@@ -21,9 +21,10 @@ not launch or coordinate agents, define their plans, or enforce project permissi
 - Display name: AgentSlots. Repository and package name: `agentslots`.
   Existing `.agent-slots.conf` and `~/.agent-slots` paths stay compatible.
 - Product documentation is Markdown. Keep the README concise and link to focused guides.
-- New work may point to an existing project state document with `--state`; AgentSlots does not
-  generate plans, handovers, or task records.
-- State is derived from Git and the local system. Do not add a registry that duplicates it.
+- AgentSlots attaches resources to existing linked worktrees; it never creates or deletes Git
+  worktrees or branches, and does not generate plans, handovers, or task records.
+- Derive workspace identity from Git. Keep resource ownership and leases in the worktree's
+  Git administrative directory; do not add a second task registry.
 - Describe verification as historical or pending unless it was run against the current revision.
 - Keep SVG identity artwork editable and use the palette in `docs/agentslots-banner-light-asset.svg`.
 

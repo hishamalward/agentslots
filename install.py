@@ -17,19 +17,18 @@ import tempfile
 SOURCE = Path(__file__).resolve().parent
 VENDOR = Path(".agents/agentslots")
 MANIFEST = Path(".agents/agentslots-install.json")
-COMMANDS = ("agent-up", "agent-dev", "agent-mobile", "agent-status", "agent-stop",
-            "agent-down", "agent-reap", "agent-check", "sim-lock")
+COMMANDS = ("agent-check", "sim-lock", "agent-slots")
 EDITABLE = ("AGENTS.md", ".agent-slots.conf", ".gitignore", "agentkeel.json")
 BLOCK = (b"<!-- agentslots:start -->\n"
          b"## AgentSlots runtime resources\n\n"
          b"These runtime instructions complement task permissions; they do not grant them.\n"
          b"Read `.agents/agentslots/README.md` for the installed runtime contract.\n"
-         b"Run `scripts/agent-check.sh --code` before code-only work; run it without\n"
-         b"`--code` before adding a stack, and add `--simulator` for device work.\n"
-         b"Run `scripts/agent-status.sh` before provisioning or cleanup. Start code-only with\n"
-         b"`scripts/agent-up.sh <branch>`; use `--prepare` before direct npm commands when\n"
-         b"setup is deferred, or `--stack` when a running local app needs a slot.\n"
-         b"Stop and release only this task's resources. AgentKeel owns its isolated clones.\n"
+         b"Run `scripts/agent-check.sh --code` in the host session that will do the work.\n"
+         b"Attach only the resources needed to an existing linked worktree with\n"
+         b"`scripts/agent-slots attach --worktree PATH`; repeat `--service SERVICE` for\n"
+         b"web, db, queue or mobile. Use `--prepare` for setup without services.\n"
+         b"Pause, heartbeat, pin, unpin, sweep, or release runtime resources through\n"
+         b"`scripts/agent-slots`; it never creates or removes Git branches/worktrees.\n"
          b"<!-- agentslots:end -->\n")
 
 
@@ -142,17 +141,27 @@ def payload():
                     raise Refused(f"source symlink: {p}")
                 rel = p.relative_to(SOURCE)
                 files[str(VENDOR / rel)] = (p.read_bytes(), p.stat().st_mode & 0o777)
+    facade = SOURCE / "scripts/agent-slots"
+    if facade.is_symlink() or not facade.is_file() or not (facade.stat().st_mode & 0o111):
+        raise Refused("missing executable runtime facade: scripts/agent-slots")
+    files[str(VENDOR / "scripts/agent-slots")] = (facade.read_bytes(), facade.stat().st_mode & 0o777)
     for name in ("README.md", "LICENSE", ".agent-slots.conf.example", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "PRE-RELEASE.md"):
         files[str(VENDOR / name)] = ((SOURCE / name).read_bytes(), 0o644)
     for p in sorted((SOURCE / "docs").rglob("*")):
-        if p.is_file() and p.suffix in (".md", ".svg", ".gif"):
+        if p.is_file() and (p.suffix in (".md", ".svg", ".gif", ".plist") or p.name.endswith(".plist.example")):
             files[str(VENDOR / p.relative_to(SOURCE))] = (p.read_bytes(), 0o644)
     files[str(VENDOR / "QUICKSTART.md")] = ((SOURCE / "QUICKSTART.md").read_bytes(), 0o644)
     for name in COMMANDS:
+        if name == "agent-slots":
+            target = f"{VENDOR}/scripts/agent-slots"
+            wrapper = "scripts/agent-slots"
+        else:
+            target = f"{VENDOR}/scripts/{name}.sh"
+            wrapper = f"scripts/{name}.sh"
         text = ("#!/usr/bin/env bash\n# AgentSlots managed wrapper.\n"
                 'ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)\n'
-                f'exec /bin/bash "$ROOT/{VENDOR}/scripts/{name}.sh" "$@"\n')
-        files[f"scripts/{name}.sh"] = (text.encode(), 0o755)
+                f'exec /bin/bash "$ROOT/{target}" "$@"\n')
+        files[wrapper] = (text.encode(), 0o755)
     text = ('# AgentSlots managed source wrapper; for project-specific helpers.\n'
             '_agentslots_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)\n'
             f'. "$_agentslots_root/{VENDOR}/scripts/lib/agent-slot.sh"\n'
@@ -172,7 +181,8 @@ def load_manifest(root):
         for name, entry in manifest["files"].items():
             allowed = name.startswith(str(VENDOR) + "/") or name in {
                 *EDITABLE, "scripts/lib/agent-slot.sh",
-                *(f"scripts/{command}.sh" for command in COMMANDS)}
+                *("scripts/agent-slots" if command == "agent-slots" else f"scripts/{command}.sh"
+                  for command in COMMANDS)}
             if not allowed:
                 raise ValueError(f"unexpected managed path {name}")
             safe_path(root, name)

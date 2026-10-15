@@ -42,6 +42,11 @@ done
 # always be false, and every acquire would break a live lock and boot a second simulator.
 lock_get() { [ -f "$LOCK" ] && sed -n "/^$1=/{s///p;q;}" "$LOCK" || true; }
 
+# Runtime ownership is locked before the host-wide device mutex (the same order as pause).
+if [ "$ACTION" != status ] && [ "${AGENT_RUNTIME_LOCKED_PATH:-}" != "$WORKSPACE" ]; then
+  exec python3 -I "$HERE/lib/agent-runtime.py" lock "$WORKSPACE" 0 "$HERE/sim-lock.sh" "${ORIGINAL_ARGS[@]}"
+fi
+
 # The PID recorded in the lock must be a process that OUTLIVES this script.
 #
 # `$$` would be sim-lock.sh's own pid, and sim-lock.sh exits on the next line. Recording it makes
@@ -103,6 +108,8 @@ case "$ACTION" in
     fi
 
     agent_check_ownership "$WORKSPACE" "acquire simulator" || exit 1
+    [ "$(agent_slot_of_worktree "$WORKSPACE")" = "$SLOT" ] || { echo 'sim-lock: slot does not belong to this worktree' >&2; exit 1; }
+    python3 -I "$HERE/lib/agent-runtime.py" read "$WORKSPACE" | python3 -I -c 'import json,sys; sys.exit(0 if "mobile" in json.load(sys.stdin).get("services",[]) else 1)' || { echo 'sim-lock: attach mobile resources first' >&2; exit 1; }
     if [ -f "$LOCK" ]; then
       if holder_alive; then
         printf 'sim-lock: REFUSED. Slot %s holds the simulator (pid %s, device %s) for %s.\n' \
@@ -175,6 +182,7 @@ case "$ACTION" in
     }
     owner_workspace=$(lock_get WORKSPACE)
     [ -n "$owner_workspace" ] || { echo "sim-lock: legacy claim has no workspace identity; refusing release" >&2; exit 1; }
+    [ "$owner_workspace" = "$WORKSPACE" ] || { echo 'sim-lock: claim belongs to another worktree' >&2; exit 1; }
     agent_check_ownership "$owner_workspace" "release simulator" || exit 1
     RELEASE_CLAIM=$(lock_get CLAIM)
     holder=$(lock_get SLOT)

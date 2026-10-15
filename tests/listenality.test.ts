@@ -27,7 +27,7 @@ function fixture() {
   writeFileSync(path.join(repo, 'scripts/lib/agent-slot.sh'), '# legacy library\n');
   // The retained project simulator helpers source this library and use these existing APIs.
   const helper = '#!/bin/bash\nHERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)\n. "$HERE/lib/agent-slot.sh"\n';
-  writeFileSync(path.join(repo, 'scripts/sim-up.sh'), helper + 'for api in agent_tier_of_worktree agent_slot_of_worktree agent_web_port agent_metro_port agent_port_busy; do declare -F "$api" >/dev/null || exit 8; done\n');
+  writeFileSync(path.join(repo, 'scripts/sim-up.sh'), helper + 'for api in agent_slot_of_worktree agent_web_port agent_metro_port agent_port_busy; do declare -F "$api" >/dev/null || exit 8; done\n');
   writeFileSync(path.join(repo, 'scripts/sim-down.sh'), helper + 'for api in agent_slot_of_worktree agent_metro_port; do declare -F "$api" >/dev/null || exit 8; done\n');
   const install = spawnSync('python3', [path.join(source, 'install.py'), '--repo', repo, '--adopt-existing', '--apply'], { encoding: 'utf8' });
   expect(install.status, install.stderr).toBe(0);
@@ -47,9 +47,9 @@ afterEach(() => { for (const dir of temporary.splice(0)) rmSync(dir, { recursive
 describe('Listenality adoption adapter', () => {
   it('preserves existing resource formulas, env location and queue isolation', () => {
     const f = fixture();
-    const result = shell(f, 'agent_config_validate; agent_db_name 0; agent_db_name 3; agent_web_port 3; agent_metro_port 3; agent_boss_schema 0; agent_boss_schema 3; printf "%s\\n" "$AGENT_PG_USER" "$AGENT_INHERITED_QUEUE_SCHEMA"; agent_env_path "$PWD"; agent_worktree_path feat/check');
+    const result = shell(f, 'agent_config_validate; agent_db_name 0; agent_db_name 3; agent_web_port 3; agent_metro_port 3; agent_boss_schema 0; agent_boss_schema 3; printf "%s\\n" "$AGENT_PG_USER" "$AGENT_INHERITED_QUEUE_SCHEMA"; agent_env_path "$PWD"');
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim().split('\n')).toEqual(['music_analytics_dev', 'music_analytics_a3', '3300', '8381', 'pgboss', 'pgboss_a3', 'tracker', 'pgboss', `${f.repo}/apps/web/.env`, `${f.base}/ma-check`]);
+    expect(result.stdout.trim().split('\n')).toEqual(['music_analytics_dev', 'music_analytics_a3', '3300', '8381', 'pgboss', 'pgboss_a3', 'tracker', 'pgboss', `${f.repo}/apps/web/.env`]);
     expect(readFileSync(path.join(f.repo, '.agent-slots.conf'), 'utf8')).toBe(config);
     expect(existsSync(path.join(f.repo, 'CLAUDE.md'))).toBe(false);
   });
@@ -68,7 +68,8 @@ describe('Listenality adoption adapter', () => {
     const f = fixture(), wt = path.join(f.base, 'ma-code');
     mkdirSync(path.join(f.repo, 'node_modules'));
     writeFileSync(path.join(f.repo, 'node_modules/fixture-package'), 'original dependency\n');
-    const r = spawnSync('bash', ['scripts/agent-up.sh', 'feat/code'], { cwd: f.repo, env: f.env, encoding: 'utf8' });
+    execFileSync('git', ['worktree', 'add', '-qb', 'feat/code', wt], { cwd: f.repo });
+    const r = spawnSync('bash', ['scripts/agent-slots', 'attach', '--worktree', wt, '--prepare'], { cwd: f.repo, env: f.env, encoding: 'utf8' });
     expect(r.status, r.stderr).toBe(0);
     expect(statSync(path.join(wt, 'node_modules')).isDirectory()).toBe(true);
     expect(readFileSync(path.join(wt, 'node_modules/fixture-package'), 'utf8')).toBe('original dependency\n');
@@ -77,48 +78,12 @@ describe('Listenality adoption adapter', () => {
     expect(existsSync(path.join(wt, 'apps/web/.env'))).toBe(false);
     expect(existsSync(path.join(wt, 'docs/plans'))).toBe(false);
     expect(readFileSync(f.env.MOCK_LOG, 'utf8')).toBe(`${wt}/apps/web|prisma generate\n`);
-    for (const command of ['agent-dev', 'agent-mobile']) {
-      const denied = spawnSync('bash', [`scripts/${command}.sh`], { cwd: wt, env: f.env, encoding: 'utf8' });
+    for (const command of ['web', 'mobile']) {
+      const denied = spawnSync('bash', ['scripts/agent-slots', 'start', command, '--worktree', wt], { cwd: wt, env: f.env, encoding: 'utf8' });
       expect(denied.status).toBe(1);
-      expect(denied.stderr).toContain('code tier');
+      expect(denied.stderr).toContain('attach this worktree');
     }
     expect(readFileSync(f.env.MOCK_LOG, 'utf8')).toBe(`${wt}/apps/web|prisma generate\n`);
-  });
-
-  it('prepares an owned opened clone and attaches its isolated stack without changing the shared env', () => {
-    const f = fixture(), clone = path.join(f.base, 'opened-clone'), home = path.join(f.base, 'keel');
-    execFileSync('git', ['clone', '-q', '--local', f.repo, clone]);
-    execFileSync('git', ['checkout', '-qb', 'feat/clone'], { cwd: clone });
-    mkdirSync(path.join(home, 'opened'), { recursive: true });
-    const token = 'fixture-listenality-clone', st = statSync(clone);
-    writeFileSync(path.join(clone, '.git/agentkeel-clone-id'), `${token}\n`);
-    writeFileSync(path.join(home, 'opened/owner.json'), JSON.stringify({ task: 'owner', repo: f.repo, clone, sessions: ['fixture'], clone_id: [st.dev, st.ino], clone_token: token }));
-    mkdirSync(path.join(f.repo, 'node_modules'));
-    writeFileSync(path.join(f.repo, 'node_modules/fixture-package'), 'shared dependency\n');
-    const mainEnv = 'DATABASE_URL="postgresql://fixture@localhost/music_analytics_dev"\nNEXT_PUBLIC_APP_URL="http://localhost:3000"\n';
-    writeFileSync(path.join(f.repo, 'apps/web/.env'), mainEnv);
-    const bin = path.join(f.base, 'bin');
-    writeFileSync(path.join(bin, 'psql'), `#!/bin/bash
-case "$*" in
-  *"datname = 'music_analytics_dev'"*) printf '1\\n' ;;
-  *"datname = 'music_analytics_a"*) exit 0 ;;
-  *"select count(*) from pg_namespace"*) printf '0\\n' ;;
-  *"select 1"*) printf '1\\n' ;;
-  *) cat >/dev/null ;;
-esac
-`, { mode: 0o755 });
-    writeFileSync(path.join(bin, 'createdb'), '#!/bin/bash\nexit 0\n', { mode: 0o755 });
-    writeFileSync(path.join(bin, 'pg_dump'), '#!/bin/bash\nprintf "dump\\n"\n', { mode: 0o755 });
-    const env = { ...f.env, AGENT_REPO_ROOT: f.repo, AGENTKEEL_HOME: home };
-    const r = spawnSync('bash', ['scripts/agent-up.sh', 'feat/clone', '--workspace', clone, '--stack'], { cwd: f.repo, env, encoding: 'utf8' });
-    expect(r.status, r.stderr).toBe(0);
-    expect(readFileSync(path.join(clone, 'node_modules/fixture-package'), 'utf8')).toBe('shared dependency\n');
-    expect(readFileSync(f.env.MOCK_LOG, 'utf8')).toBe(`${clone}/apps/web|prisma generate\n`);
-    expect(readFileSync(path.join(clone, 'apps/web/.env'), 'utf8')).toContain('AGENT_SLOT=1');
-    expect(readFileSync(path.join(clone, 'apps/web/.env'), 'utf8')).toContain('/music_analytics_a1');
-    expect(readFileSync(path.join(clone, 'apps/web/.env'), 'utf8')).toContain('PGBOSS_SCHEMA=pgboss_a1');
-    expect(readFileSync(path.join(f.repo, 'apps/web/.env'), 'utf8')).toBe(mainEnv);
-    expect(existsSync(path.join(clone, '.git'))).toBe(true);
   });
 
   it('starts Next and Expo hooks on explicit ports with forwarded arguments, using mocks', () => {

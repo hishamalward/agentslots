@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ACTION=${1:-}
+[ -n "$ACTION" ] || { echo "usage: agent-slots <attach|status|start|heartbeat|pin|unpin|pause|release|sweep> [options]" >&2; exit 2; }
+case "$ACTION" in
+  -h|--help) echo 'usage: agent-slots <attach|status|start|heartbeat|pin|unpin|pause|release|sweep> [options]'; exit 0 ;;
+esac
+shift
+
+case "$ACTION" in
+  attach) exec "$HERE/agent-up.sh" "$@" ;;
+  status) exec "$HERE/agent-status.sh" "$@" ;;
+  start) exec "$HERE/agent-runtime.sh" start "$@" ;;
+  heartbeat|pin|unpin|pause|release|sweep)
+    exec "$HERE/agent-runtime.sh" "$ACTION" "$@" ;;
+  *) echo "agent-slots: unknown command: $ACTION" >&2; exit 2 ;;
+esac

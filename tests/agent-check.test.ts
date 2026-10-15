@@ -159,11 +159,11 @@ describe('agent-check capability preflight', () => {
     } finally { f.cleanup(); }
   });
 
-  it('refuses missing Git prerequisites and remote connection overrides', () => {
+  it('accepts missing commit identity and refuses remote connection overrides', () => {
     const f = fixture();
     try {
       f.git('config', 'user.email', '');
-      expect(f.run(['--code']).stderr).toContain('empty Git configuration: user.email');
+      expect(f.run(['--code']).status).toBe(0);
       f.git('config', 'user.email', 'fixture@example.com');
       expect(f.run([], { PGHOST: 'production.example' }).stderr).toContain('PGHOST must identify local PostgreSQL');
       expect(f.run([], { PGSERVICE: 'production' }).stderr).toContain('PGSERVICE is not supported');

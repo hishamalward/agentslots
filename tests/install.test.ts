@@ -33,8 +33,17 @@ describe('pinned runtime installer', () => {
     expect(run(dir, '--apply').status).toBe(0);
     expect(text(dir, '.agent-slots.conf')).toBe('AGENT_PROJECT_SLUG=custom\n');
     expect(text(dir, 'AGENTS.md')).toContain('# Existing instructions');
-    expect(text(dir, 'AGENTS.md')).toContain('use `--prepare` before direct npm commands');
-    expect(text(dir, 'scripts/agent-up.sh')).toContain('.agents/agentslots/scripts/agent-up.sh');
+    expect(text(dir, 'AGENTS.md')).toContain('attach --worktree PATH');
+    expect(text(dir, 'AGENTS.md')).toContain('never creates or removes Git branches/worktrees');
+    expect(text(dir, 'scripts/agent-slots')).toContain('.agents/agentslots/scripts/agent-slots');
+    expect(existsSync(path.join(dir, '.agents/agentslots/scripts/agent-slots'))).toBe(true);
+    expect(existsSync(path.join(dir, '.agents/agentslots/scripts/agent-runtime.sh'))).toBe(true);
+    expect(existsSync(path.join(dir, '.agents/agentslots/scripts/lib/agent-runtime.py'))).toBe(true);
+    expect(existsSync(path.join(dir, '.agents/agentslots/docs/launchd-scheduling.md'))).toBe(true);
+    expect(existsSync(path.join(dir, '.agents/agentslots/docs/launchd-sweep.plist.example'))).toBe(true);
+    expect(text(dir, 'scripts/agent-slots')).toContain('.agents/agentslots/scripts/agent-slots');
+    expect(existsSync(path.join(dir, '.agents/agentslots/scripts/agent-up.sh'))).toBe(true);
+    expect(existsSync(path.join(dir, 'scripts/agent-up.sh'))).toBe(false);
     expect(existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false);
     expect(existsSync(path.join(dir, '.agents/agentslots/scripts/queue-isolation-check.mjs'))).toBe(true);
     const first = text(dir, '.agents/agentslots-install.json');
@@ -48,14 +57,14 @@ describe('pinned runtime installer', () => {
     const dir = fixture();
     mkdirSync(path.join(dir, 'scripts'));
     const original = '#!/bin/bash\r\necho original';
-    writeFileSync(path.join(dir, 'scripts/agent-up.sh'), original);
+    writeFileSync(path.join(dir, 'scripts/agent-slots'), original);
     expect(run(dir, '--apply').status).toBe(1);
-    expect(text(dir, 'scripts/agent-up.sh')).toBe(original);
+    expect(text(dir, 'scripts/agent-slots')).toBe(original);
     expect(run(dir, '--adopt-existing', '--apply').status).toBe(0);
     expect(run(dir, '--uninstall').status).toBe(0);
     expect(existsSync(path.join(dir, '.agents/agentslots-install.json'))).toBe(true);
     expect(run(dir, '--uninstall', '--apply').status).toBe(0);
-    expect(text(dir, 'scripts/agent-up.sh')).toBe(original);
+    expect(text(dir, 'scripts/agent-slots')).toBe(original);
     expect(existsSync(path.join(dir, '.agents/agentslots'))).toBe(false);
   });
 
@@ -83,11 +92,11 @@ describe('pinned runtime installer', () => {
   it('refuses modified managed files without partially updating anything', () => {
     const dir = fixture();
     expect(run(dir, '--apply').status).toBe(0);
-    writeFileSync(path.join(dir, '.agents/agentslots/scripts/agent-up.sh'), 'my change\n');
+    writeFileSync(path.join(dir, '.agents/agentslots/scripts/agent-runtime.sh'), 'my change\n');
     const manifest = text(dir, '.agents/agentslots-install.json');
     expect(run(dir, '--apply').status).toBe(1);
     expect(run(dir, '--uninstall', '--apply').status).toBe(1);
-    expect(text(dir, '.agents/agentslots/scripts/agent-up.sh')).toBe('my change\n');
+    expect(text(dir, '.agents/agentslots/scripts/agent-runtime.sh')).toBe('my change\n');
     expect(text(dir, '.agents/agentslots-install.json')).toBe(manifest);
   });
 

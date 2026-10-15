@@ -2,7 +2,6 @@
 # This example adapts a Next.js + Prisma + pg-boss + Expo npm-workspaces project. Values contain
 # no secrets; credentials remain in the application's normal env file.
 
-AGENT_MAIN_BRANCH=main
 AGENT_PROJECT_SLUG=your_project
 AGENT_DATABASE_MAIN=your_project_dev
 AGENT_DATABASE_PREFIX=your_project_a
@@ -17,7 +16,7 @@ AGENT_WEB_PORT_BASE=3000
 AGENT_METRO_PORT_BASE=8081
 AGENT_PORT_STEP=100
 AGENT_SLOT_MAX=9
-AGENT_WORKTREE_PREFIX=your-project-
+AGENT_LEASE_SECONDS=1800
 
 AGENT_SLOT_KEY=AGENT_SLOT
 AGENT_DATABASE_URL_KEY=DATABASE_URL

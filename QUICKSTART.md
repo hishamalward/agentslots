@@ -1,237 +1,139 @@
 # Quickstart
 
-AgentSlots supports macOS with system Bash 3.2. The installer and runtime ownership checks need
-Python 3.10 or newer and Git. Status and stack commands also need a reachable local PostgreSQL
-server, `lsof`, and PostgreSQL client tools (`psql`, `createdb`, `dropdb`, and `pg_dump`).
-Simulator locking needs Xcode command-line tools and `jq`.
+AgentSlots supports macOS with system Bash 3.2. The installer and runtime ownership checks need Python 3.10 or newer and Git. Database operations need a local PostgreSQL server and its client tools; process and port checks need `lsof`. Simulator checks need Xcode command-line tools and `jq`.
 
 ## 1. Preview and install
 
-Clone a reviewed AgentSlots Git checkout, then preview the changes for your project:
+Clone a reviewed AgentSlots checkout, then preview and apply the runtime in your project:
 
 ```sh
 python3 install.py --repo /path/to/project
-```
-
-Review the preview, then apply it:
-
-```sh
 python3 install.py --repo /path/to/project --apply
 ```
 
-The installer places the pinned runtime under `.agents/agentslots/`, creates small project
-wrappers, and adds an AgentSlots guidance block to `AGENTS.md` without replacing your other
-instructions. It copies `.agent-slots.conf.example` to `.agent-slots.conf` only when the project
-configuration is missing. It does not fetch or update AgentSlots automatically.
-If `agentkeel.json` exists, it preserves existing policy entries and adds the coordination
-directory to its writable paths. For a custom `AGENT_SIM_LOCK`, pass
-`--coordination-dir /absolute/path/to/its/parent` to both preview and apply.
+The installer places the pinned runtime under `.agents/agentslots/`, adds the `scripts/agent-slots` facade and the capability-check/device-lock commands, and adds a managed guidance block to `AGENTS.md` without replacing other instructions. It copies `.agent-slots.conf.example` only if project configuration is missing. It does not fetch updates, change host settings or commit for you.
 
-If the project already has scripts with AgentSlots names, the default is to refuse. Review the
-collision and choose an explicit migration only if those scripts are the ones you want to replace:
+If `agentkeel.json` exists, the installer preserves its policy and may add the configured coordination directory to `writable`. For a custom `AGENT_SIM_LOCK`, pass `--coordination-dir /absolute/path/to/its/parent` to preview and apply. The installer does not source project shell configuration to infer this path.
 
-```sh
-python3 install.py --repo /path/to/project --adopt-existing --apply
-```
+If scripts collide with installed wrappers, inspect them and use `--adopt-existing` only when you intend to replace them. The manifest retains original bytes and modes for uninstall. A reviewed clean source checkout makes the recorded revision reproducible; when `source_dirty` is true, manifest hashes describe the installed payload.
 
-The install manifest records original script bytes and modes so uninstall can restore them. It
-also records the runtime version, source revision, `source_dirty` flag, and managed-file hashes in
-`.agents/agentslots-install.json`. Use a reviewed clean checkout for a runtime reproducible from
-its recorded revision. If `source_dirty` is true, the installed bytes can differ from that commit;
-the file hashes identify the actual installed payload.
+## 2. Configure
 
-## 2. Configure the project
+Edit `.agent-slots.conf` for database names, app paths, port formulas, dependency preparation and project server hooks. Treat it as trusted Bash code and keep secrets in application env files. Preparation hooks run from the primary worktree and receive its path and target worktree path; after the hook, attach continues from the target worktree. See [configuration](docs/configuration.md).
 
-Edit `.agent-slots.conf` to set database names, application paths, env file, and project hook
-functions. Treat this file as trusted Bash code. Keep credentials in the application's env file.
-If you change `AGENT_SIM_LOCK` in an AgentKeel project after installation, rerun the installer
-with `--coordination-dir` naming the new lock parent before opening a session.
-Review and commit the installed runtime, wrappers, manifest, configuration and instruction changes
-before creating worktrees: new worktrees receive committed files. Ensure `.agent` is ignored:
+Review and commit the runtime, wrappers, manifest, configuration and guidance before creating future worktrees, so they receive the installed setup. Verify that `.agent` is ignored:
 
 ```sh
 git check-ignore -q .agent
 ```
 
-See [configuration](docs/configuration.md) for each variable and hook.
+## 3. Attach to an existing worktree
 
-## 3. Create a code worktree
+AgentSlots never creates a branch or worktree. Create or select one through Git, AgentKeel or your existing workflow, then attach only the resources the work needs. Standalone use requires no AgentKeel task/session IDs:
 
 ```sh
 scripts/agent-check.sh --code
-scripts/agent-up.sh feat/example
+scripts/agent-slots attach --worktree /path/to/existing-worktree
 ```
 
-This creates a sibling worktree and runs the configured setup hook. It does not assign stack
-ports or a database. To connect the worktree with an existing project state document, pass its path:
+With no service flags, attach selects no database, processes, ports or device. To prepare dependencies/code generation without allocating services, add `--prepare`:
 
 ```sh
-scripts/agent-up.sh feat/example --state docs/260901-feature-state.html
+scripts/agent-slots attach --worktree /path/to/existing-worktree --prepare
 ```
 
-The state pointer is optional and refers to a document already maintained by the project.
-
-### Runtime sessions: servers, databases and simulators
-
-Both Claude Code and Codex completed the full runtime cycle in sessions with access to the Mac.
-The model chooses commands; the host program and its sandbox decide whether they can run.
-
-1. Use a task worktree with the project's dependencies, local database and simulator app ready.
-2. Start a session whose host permissions allow runtime operations. The tested Claude session
-   already had host access. In Codex, type `/permissions`, choose **Full access**, and accept
-   its confirmation. This gives the active session the broad host access needed for runtime work.
-   The [Codex permissions guide](https://learn.chatgpt.com/docs/sandboxing#how-permissions-work)
-   documents this picker. Our live acceptance used the equivalent host-access setting at launch:
-
-   ```sh
-   cd /path/to/task-worktree
-   codex -c 'default_permissions=":danger-full-access"'
-   ```
-
-   This gives that session broad host access, not just simulator access. It removes the shell's
-   sandbox containment for that session. Normal AgentKeel hooks and saved hook trust remain active;
-   task permissions still apply. The launch command does not edit global settings or configure future sessions.
-   Use it only when that broader access is explicitly authorized.
-3. Have the agent declare its AgentKeel task if applicable, then run
-   `scripts/agent-check.sh --simulator` **through the agent's shell tool**. Running the check in
-   your own terminal does not test the agent's permissions.
-4. If the check passes, let the agent use the normal provisioning, app/QA and cleanup commands.
-   If it fails, resolve the reported host setting before proceeding; AgentSlots does not change
-   the setting or retry outside the sandbox automatically.
-
-AgentSlots owns capability checks and resources. AgentKeel owns task authorization and its launch
-profiles. The host owns access to macOS services. A future permission-aware launcher belongs with
-AgentKeel's host integration; a separate runtime service is not needed for the supported workflow.
-
-### Attach a stack to an AgentKeel opened clone
-
-AgentKeel creates the isolated clone and prints its launch command. AgentSlots attaches runtime
-resources to it; AgentKeel remains responsible for importing reviewed code and removing the clone.
-The installer adds the coordination directory to the shared checkout's existing `agentkeel.json`
-writable paths. Review that change before opening the clone. It covers lifecycle and simulator
-locks; it does not add the shared checkout or its `.git` directory, or grant host process,
-PostgreSQL, or CoreSimulator access.
-
-Use the `task.py` path shown by AgentKeel. The human creates the clone and prints its sandbox
-launch command (choose `--host claude` for Claude Code):
+Select runtime services explicitly and repeat `--service` as needed:
 
 ```sh
-task.py open example --host codex --size medium --allow implement --print-only
+scripts/agent-slots attach --worktree /path/to/existing-worktree --service web --service db
+scripts/agent-slots attach --worktree /path/to/existing-worktree --service queue
+scripts/agent-slots attach --worktree /path/to/existing-worktree --service mobile
 ```
 
-Before running the printed launcher command, attach a stack using the shared checkout as the
-configuration authority:
+`queue` selects its database as well as its per-worktree schema. `mobile` configures the Metro port; device locking remains a separate `sim-lock` operation. AgentSlots assigns port values, checks availability and writes only its configured managed keys in the target worktree env file; it does not copy other values or credentials from the main worktree. Your application starts and binds its own servers. Configure nonoverlapping port ranges in projects that run servers at the same time.
 
-```sh
-AGENT_REPO_ROOT=/path/to/shared/repository \
-  scripts/agent-up.sh feat/example --workspace /path/to/opened/clone --stack
-```
-
-Then run the sandbox launch command printed by `task.py open`. The human sets `AGENT_REPO_ROOT`
-for provisioning; the opened clone record identifies its shared repository for later runtime
-commands.
-
-Run `scripts/agent-check.sh` inside the launched session before runtime commands, adding
-`--simulator` for device work. Full stack and simulator work under current restricted profiles is
-unsupported when this check fails; see [acceptance evidence](docs/acceptance.md).
-
-The host-access procedure above describes ordinary task worktrees. An AgentKeel opened clone uses
-its generated isolation profile; the current restricted profiles have not passed the full runtime
-cycle. Attaching a stack does not remove that limit, and the printed isolation launcher must not
-be silently replaced with a full-access one.
-
-When work is ready to finish, `scripts/agent-down.sh <slot>` releases the database and processes
-but retains the opened clone. Run `task.py import <task-id> --sha <full-commit-id>` for the
-reviewed commit, then `task.py release <task-id>` to remove the clone. Do not use AgentSlots to
-remove an AgentKeel clone.
-
-## 4. Add a stack when needed
-
-Upgrade the same worktree when the task needs to run the app or database:
+Before runtime work, check capabilities in the same host session that will run commands:
 
 ```sh
 scripts/agent-check.sh
-scripts/agent-up.sh feat/example --stack
+scripts/agent-check.sh --simulator
 ```
 
-AgentSlots chooses the lowest available slot, clones the configured local database, writes the
-slot's env values, and assigns its configured port numbers. Port numbers are checked during setup,
-then bound by the application when it starts. Set disjoint port ranges for repositories that run
-concurrently. Check the result with:
+These checks report local permissions and prerequisites; AgentSlots never changes the host sandbox or retries outside it. A restricted host profile that blocks PostgreSQL, process inspection or CoreSimulator cannot run the corresponding service.
+
+## Attach an AgentKeel worktree
+
+AgentKeel owns task permissions and creates the task worktree. AgentSlots accepts the existing linked worktree path, whether it was created by AgentKeel or independently:
 
 ```sh
-scripts/agent-status.sh
+scripts/agent-slots attach --worktree /path/to/agentkeel-task-worktree --service web --service db
 ```
 
-From inside the worktree, start configured servers:
+AgentSlots coordinates runtime resources only. `scripts/agent-slots release --worktree PATH` leaves Git branch and worktree cleanup to AgentKeel or the caller. The installer may add the coordination path to an existing `agentkeel.json`; review that policy change. It does not grant host permissions or add access to `.git`.
+
+## 4. Inspect, pause, and release
+
+Inspect repository resources with:
 
 ```sh
-scripts/agent-dev.sh
-scripts/agent-mobile.sh  # only when a secondary hook is configured
+scripts/agent-slots status --repo /path/to/project
 ```
 
-Before simulator work, run `scripts/agent-check.sh --simulator`. The check lists available devices;
-it does not boot them. Capability checks initialize the configured coordination directory if
-missing and create/remove a private write probe. They do not provision slots, run setup hooks, or
-change host permissions. Exit status is 0 for ready, 1 for a failed prerequisite, and 2 for usage.
-
-## 5. Pause or finish
-
-Pause a stack and keep its worktree and database:
+Start a configured server from the attached worktree:
 
 ```sh
-scripts/agent-stop.sh 1
+scripts/agent-slots start web --worktree /path/to/existing-worktree
+scripts/agent-slots start mobile --worktree /path/to/existing-worktree  # optional mobile hook
 ```
 
-After work is preserved, release the stack and remove its linked worktree:
+Pause only AgentSlots-recorded processes while retaining the database, env values, slot claim and Git worktree. Run `start` again to resume:
 
 ```sh
-scripts/agent-down.sh 1
+scripts/agent-slots pause --worktree /path/to/existing-worktree
+scripts/agent-slots start web --worktree /path/to/existing-worktree
 ```
 
-The reaper previews possible orphans by default. Review each reason before using `--yes` to clean
-up resources.
+A failed start retains its intent and log for inspection. Check `status` and the recorded log before retrying or releasing that runtime.
 
-## 6. Update or uninstall
-
-To update, use a reviewed newer AgentSlots checkout and rerun the installer. It refuses to
-overwrite edited runtime files. It updates the managed guidance block while preserving surrounding
-`AGENTS.md` text, and retains edits to project configuration and `.gitignore`:
+Heartbeat refreshes the worktree's lease; call it periodically while active. Pin a long-running or intentionally idle runtime so expiry cleanup skips it, and unpin it when normal expiry should resume:
 
 ```sh
-python3 install.py --repo /path/to/project --apply
+scripts/agent-slots heartbeat --worktree /path/to/existing-worktree
+scripts/agent-slots pin --worktree /path/to/existing-worktree
+scripts/agent-slots unpin --worktree /path/to/existing-worktree
 ```
 
-For an AgentKeel project with a custom `AGENT_SIM_LOCK`, repeat
-`--coordination-dir /absolute/path/to/its/parent` on each update.
+Sweep is a dry run by default. Review candidates and use `--yes` only when you want expired, unpinned runtime processes paused. It does not release databases or remove worktrees. Ownership uncertainty or failed safety checks retain resources:
 
-Uninstall first previews what would be removed or restored:
+```sh
+scripts/agent-slots sweep
+scripts/agent-slots sweep --yes
+```
+
+Release runtime resources explicitly when finished; this never removes the Git worktree:
+
+```sh
+scripts/agent-slots release --worktree /path/to/existing-worktree
+```
+
+No daemon or scheduler is installed. Heartbeat represents active use; do not schedule it unconditionally. For optional repository-scoped idle cleanup, see [the launchd sweep example](docs/launchd-scheduling.md). Review its `--yes` behavior and lease cadence; the installer never installs or activates it.
+
+## 5. Update or uninstall
+
+Run the installer from a reviewed newer checkout. It refuses to overwrite edited vendored runtime files; reconcile local changes first. Preview uninstall before applying it:
 
 ```sh
 python3 install.py --repo /path/to/project --uninstall
-```
-
-Apply only after reviewing the preview:
-
-```sh
 python3 install.py --repo /path/to/project --uninstall --apply
 ```
 
-Uninstall restores original project scripts and the exact original `AGENTS.md` when unchanged. If
-you edited that file, it removes only the unchanged AgentSlots guidance block and preserves your
-text. A configuration created by the installer is removed only if it is unchanged; user edits and
-project state documents named by `--state` are preserved.
-An unchanged `agentkeel.json` is restored to its original bytes and mode. An edited policy is
-retained, including any coordination grant, to preserve user changes.
+Uninstall restores original files where they remain unchanged, removes the unchanged managed guidance block, and preserves edits and user-owned project state. It does not remove existing Git worktrees or branches.
 
-## 7. Check this repository
-
-For changes to AgentSlots itself:
+## 6. Check this repository
 
 ```sh
 npm ci
 npm run check
 ```
 
-The automated checks use temporary Git repositories and mocked simulator output. The optional
-queue probe needs disposable PostgreSQL schemas; see [queue isolation](docs/queue-isolation.md).
+Automated tests use temporary Git repositories and mocked simulator output. The optional queue probe requires disposable PostgreSQL schemas; see [queue isolation](docs/queue-isolation.md).
