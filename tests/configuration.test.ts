@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,6 +16,21 @@ function source(snippet: string, env: NodeJS.ProcessEnv = {}): string {
 }
 
 describe('project configuration', () => {
+  it('resolves default naming once per validation without retaining an identity cache', () => {
+    const result = spawnSync('bash', ['-c', `set -e; . "${LIB}";
+      agent_main_root() { echo lookup >&2; printf '%s\\n' "$PWD"; }
+      agent_config_validate
+      printf 'slug:%s\\n' "$AGENT_PROJECT_SLUG"
+    `], {
+      cwd: REPO, encoding: 'utf8',
+      env: { ...process.env, AGENT_CONFIG: '', AGENT_PROJECT_SLUG: '',
+        AGENT_DATABASE_MAIN: '', AGENT_DATABASE_PREFIX: '', AGENT_WORKTREE_PREFIX: 'fixture-' },
+    });
+    expect(result.status).toBe(0);
+    expect(result.stderr.trim().split('\n')).toEqual(['lookup']);
+    expect(result.stdout.trim()).toBe('slug:');
+  });
+
   it.each([
     ['sample-project', 'sample_project'],
     ['renamedproject', 'renamedproject'],

@@ -318,6 +318,9 @@ agent_relative_path_valid() {
 
 agent_config_validate() {
   local value n port db schema seen_ports=" " seen_dbs=" " seen_schemas=" "
+  # Resolve naming once for this validation; ownership checks still read fresh identity.
+  local AGENT_PROJECT_SLUG="$AGENT_PROJECT_SLUG"
+  AGENT_PROJECT_SLUG=$(agent_project_slug) || return 1
   case "$AGENT_PREPARE_DEFAULT" in eager|deferred) ;; *) echo "agent-slots: AGENT_PREPARE_DEFAULT must be eager or deferred" >&2; return 1 ;; esac
   case "$AGENT_SLOT_MAX" in ""|*[!0-9]*|0|0[0-9]*) echo "agent-slots: AGENT_SLOT_MAX must be a positive integer without leading zeroes" >&2; return 1 ;; esac
   { [ "${#AGENT_SLOT_MAX}" -le 2 ] && [ "$AGENT_SLOT_MAX" -le 99 ]; } \
