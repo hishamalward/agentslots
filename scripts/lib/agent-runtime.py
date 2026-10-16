@@ -484,7 +484,7 @@ def main(argv):
             try:
                 p = lock(path)
                 if os.path.lexists(p["workspace_marker"]):
-                    identity(p)
+                    identity(p, enforce_session=False)
                 if p["common_dir"] != common:
                     continue
                 value = read(p)
@@ -499,6 +499,11 @@ def main(argv):
                 if yes:
                     runtime_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent-runtime.sh")
                     env = dict(os.environ, AGENT_RUNTIME_LOCKED_PATH=path)
+                    # This sweep already validated the manifest, owner and expired lease while
+                    # holding both lifecycle locks. Its internal pause must not impersonate the
+                    # caller's host session; targeted pause commands keep their normal check.
+                    for key in ("AGENTKEEL_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"):
+                        env.pop(key, None)
                     result = subprocess.run(["/bin/bash", runtime_script, "pause", "--worktree", path],
                                             env=env, pass_fds=(8, 9), timeout=30)
                     if result.returncode:

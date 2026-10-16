@@ -51,14 +51,14 @@ describe('managed runtime lifecycle', () => {
     });
   }
 
-  function markerPath() {
-    const raw = git(wt, 'rev-parse', '--git-path', 'agent-runtime.json');
-    return path.isAbsolute(raw) ? raw : path.join(wt, raw);
+  function markerPath(worktree = wt) {
+    const raw = git(worktree, 'rev-parse', '--git-path', 'agent-runtime.json');
+    return path.isAbsolute(raw) ? raw : path.join(worktree, raw);
   }
 
-  function marker(): any { return JSON.parse(readFileSync(markerPath(), 'utf8')); }
-  function saveMarker(value: unknown) { writeFileSync(markerPath(), `${JSON.stringify(value)}\n`, { mode: 0o600 }); }
-  function setExpired() { const value = marker(); value.heartbeat = 1; saveMarker(value); }
+  function marker(worktree = wt): any { return JSON.parse(readFileSync(markerPath(worktree), 'utf8')); }
+  function saveMarker(value: unknown, worktree = wt) { writeFileSync(markerPath(worktree), `${JSON.stringify(value)}\n`, { mode: 0o600 }); }
+  function setExpired(worktree = wt) { const value = marker(worktree); value.heartbeat = 1; saveMarker(value, worktree); }
   function isAlive(pid: number) { try { process.kill(pid, 0); return true; } catch { return false; } }
   async function waitStopped(pid: number) {
     const deadline = Date.now() + 5000;
@@ -174,5 +174,23 @@ describe('managed runtime lifecycle', () => {
     const foreignValidation = spawnSync('python3', ['-I', helper, 'validate', other], { encoding: 'utf8', env: envWithSession });
     expect(foreignValidation.status).not.toBe(0);
     expect(foreignValidation.stderr).toContain('session does not match');
+  });
+
+  it('sweeps an expired owned worktree whose Keel session differs from the caller', () => {
+    const other = path.join(base, 'other-expired-task');
+    execFileSync('git', ['-C', main, 'worktree', 'add', '-qb', 'feat/sweep-other', other]);
+    writeKeelClaim(wt, 'sweep-task', 'owned-session', 1);
+    writeKeelClaim(other, 'sweep-other-task', 'other-owned-session', 2);
+    setExpired();
+    setExpired(other);
+    env.AGENTKEEL_SESSION_ID = 'unrelated-session';
+    const swept = run(['sweep', '--repo', main, '--yes']);
+    expect(swept.status, swept.stderr).toBe(0);
+    expect(marker().state).toBe('paused');
+    expect(marker(other).state).toBe('paused');
+    const targeted = run(['pause', '--worktree', wt]);
+    expect(targeted.status).not.toBe(0);
+    expect(targeted.stderr).toContain('session does not match');
+    delete env.AGENTKEEL_SESSION_ID;
   });
 });
