@@ -53,7 +53,12 @@ if [ "$PREPARE" = 1 ]; then
     cd "$WT"
   fi
 fi
-[ "$SERVICE_COUNT" -gt 0 ] || { echo "agent-slots: worktree ready at $WT${PREPARE:+ (prepare requested)}"; exit 0; }
+[ "$SERVICE_COUNT" -gt 0 ] || {
+  prepare_note=""
+  [ "$PREPARE" = 0 ] || prepare_note=" (prepare requested)"
+  echo "agent-slots: worktree ready at $WT$prepare_note"
+  exit 0
+}
 
 want_db=0; want_queue=0; want_web=0; want_mobile=0
 for service in ${SERVICES[@]+"${SERVICES[@]}"}; do

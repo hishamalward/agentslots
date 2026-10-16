@@ -42,12 +42,12 @@ function createFixture(prepareBody: string): Fixture {
   return { base, repo };
 }
 
-function runUp(repo: string, branch: string, flags: string[] = []): { status: number; stderr: string } {
+function runUp(repo: string, branch: string, flags: string[] = []): { status: number; stdout: string; stderr: string } {
   try {
-    execFileSync('bash', ['scripts/agent-up.sh', '--worktree', branch, ...flags], { cwd: repo, encoding: 'utf8' });
-    return { status: 0, stderr: '' };
+    const stdout = execFileSync('bash', ['scripts/agent-up.sh', '--worktree', branch, ...flags], { cwd: repo, encoding: 'utf8' });
+    return { status: 0, stdout, stderr: '' };
   } catch (error: any) {
-    return { status: error.status, stderr: error.stderr?.toString() ?? '' };
+    return { status: error.status, stdout: error.stdout?.toString() ?? '', stderr: error.stderr?.toString() ?? '' };
   }
 }
 
@@ -60,9 +60,13 @@ describe('explicit dependency preparation', () => {
       '\nagent_dependencies_present() { [ -f "$1/prepared" ]; }\nagent_dependencies_stale() { [ -f "$1/stale" ]; }\n');
     try {
       execFileSync('git', ['worktree', 'add', '-qb', 'feat/deferred', wt], { cwd: fixture.repo });
-      expect(runUp(fixture.repo, wt).status).toBe(0);
+      const deferred = runUp(fixture.repo, wt);
+      expect(deferred.status).toBe(0);
+      expect(deferred.stdout).not.toContain('(prepare requested)');
       expect(existsSync(path.join(wt, 'prepared'))).toBe(false);
-      expect(runUp(fixture.repo, wt, ['--prepare']).status).toBe(0);
+      const prepared = runUp(fixture.repo, wt, ['--prepare']);
+      expect(prepared.status).toBe(0);
+      expect(prepared.stdout).toContain('(prepare requested)');
       expect(readFileSync(path.join(wt, 'prepare-count'), 'utf8')).toBe('run');
       expect(existsSync(path.join(wt, '.env'))).toBe(false);
       expect(runUp(fixture.repo, wt, ['--prepare']).status).toBe(0);

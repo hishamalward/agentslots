@@ -10,7 +10,7 @@ not launch or coordinate agents, define their plans, or enforce project permissi
 - Keep Bash compatible with macOS system Bash 3.2 and BSD userland. Avoid Bash 4 features and
   GNU-only utility flags.
 - Treat `.agent-slots.conf` as trusted shell code. Never put credentials in it.
-- Check ownership before removing worktrees, databases, processes, or locks. Unknown ownership
+- Check ownership before releasing databases, processes, or locks; never remove Git worktrees. Unknown ownership
   means refuse and explain how to inspect it.
 - Keep project-specific setup and server commands in configuration hooks, not in the shared core.
 - Do not add Linux, Windows, cloud, container, daemon, dashboard, or orchestration support without

@@ -1,10 +1,10 @@
 # Release checklist
 
-## Evidence from v0.1.0
+## Candidate evidence
 
-The 0.1 release has historical evidence for shell and TypeScript checks, queue isolation, and a
-live two-slot run. Dates, revisions, and limits are recorded in [acceptance.md](docs/acceptance.md).
-Those results describe v0.1.0 and do not verify a later candidate.
+The current 0.3.0 attach-only contract and its tested revisions are recorded in
+[acceptance.md](docs/acceptance.md). Earlier branch-creating releases do not verify this
+candidate; release checks must use the exact intended revision.
 
 ## Release checks
 
@@ -22,7 +22,7 @@ Before publishing a release:
 - Run the local multi-slot lifecycle on macOS for the exact candidate revision. Record whether
   stack provisioning, ownership checks, pause, cleanup, and the simulator lock passed. Keep prior
   acceptance as historical evidence; do not merge it with a new run.
-- For AgentKeel opened clones, record local PostgreSQL, process inspection/cleanup, and
+- For AgentKeel-managed linked worktrees, record local PostgreSQL, process inspection/cleanup, and
   CoreSimulator results under each host's active profile. Code-tier checks do not establish full
   runtime support. Current restricted profiles that deny a prerequisite are unsupported. Explicitly
   authorized full host access is a separate mode and must be labeled as such; never automatically

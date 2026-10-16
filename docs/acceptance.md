@@ -2,15 +2,14 @@
 
 The previous 0.2.0 runtime checks exercised the branch-creating and worktree-removing interface. That interface is retired; its results do not verify the current attach-only contract.
 
-For the current 0.3.0 candidate, focused allocation, installer and runtime lifecycle checks plus disposable local service smokes have passed on the current working tree. The complete repository gate (`npm run check`) passed on macOS: shell syntax/ShellCheck, TypeScript, and 94 Vitest tests across 12 files, plus six Python tests. The final shutdown-edge fix then passed the expanded seven-test Python suite. This evidence belongs to the 0.3.0 source candidate; it is not an installed or published release.
+The 0.3.0 source candidate’s complete gate (`npm run check`) passed on macOS: shell syntax/ShellCheck, TypeScript, 95 Vitest tests across 12 files and 7 Python tests. This was verified at runtime revision `a98b4438e97a34c72c799ad4c6037b6622e2107a` by both [PR CI](https://github.com/hishamalward/agentslots/actions/runs/38840501116) and [push CI](https://github.com/hishamalward/agentslots/actions/runs/38840497670). The attach-status wording correction additionally passed its two-test integration suite, Bash syntax validation and ShellCheck; it changes only when the preparation suffix is printed. Exact-head checks are available on [the candidate PR](https://github.com/hishamalward/agentslots/pull/4). This is candidate evidence, not an installed or published release.
 
-Current focused evidence:
+The automated suites cover allocation, installer behavior and runtime lifecycle. In particular, the lifecycle regression pauses expired owned worktrees across different agent sessions while direct worktree commands still reject a session mismatch.
 
-- `npx vitest run tests/attach-allocation.test.ts`: 10 tests passed, including absolute worktree attach from outside Git, prepare hook current directory, selective port-only allocation, creation ambiguity, OID checks and env rollback.
-- `npx vitest run tests/install.test.ts`: 14 tests passed, including copying the facade and Python runtime helper.
-- `npx vitest run tests/runtime-lifecycle.test.ts`: 2 tests passed. A temporary Git worktree smoke also attached web, started `/bin/sleep`, paused it, started it again, and paused it; both recorded leaders were gone afterward and the logs were distinct.
-- Live PostgreSQL attach/release smoke used disposable source database `agentslots_src_1792105785_32177` and slot database `agentslots_slot_1792105785_32177_1` on local `localhost:5432`. Queue attach copied the fixture row, wrote `DATABASE_URL` for the slot and `PGBOSS_SCHEMA=pgboss_a1`; release restored the target env, dropped the slot database, and left the source row intact. Cleanup removed the source database; a follow-up catalog query found neither database.
-- The focused Python safety suite passed 7 tests after the process-group shutdown regression was added.
+Earlier disposable service smokes, separate from the CI evidence above:
+
+- A temporary Git worktree attached web, started `/bin/sleep`, paused it, started it again, and paused it; both recorded leaders were gone afterward and the logs were distinct.
+- A local PostgreSQL fixture used disposable source database `agentslots_src_1792105785_32177` and slot database `agentslots_slot_1792105785_32177_1` on `localhost:5432`. Queue attach copied the fixture row, wrote the slot `DATABASE_URL` and `PGBOSS_SCHEMA=pgboss_a1`; release restored the target env, dropped the slot database, and left the source row intact. Cleanup removed the source database; a follow-up catalog query found neither database.
 
 The suite covers these acceptance boundaries:
 
