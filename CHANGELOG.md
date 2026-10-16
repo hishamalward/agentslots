@@ -3,7 +3,11 @@
 All notable changes are documented here. Release checks are listed in `PRE-RELEASE.md` and
 must be run against the exact release revision.
 
-## 0.3.0 candidate
+## Unreleased
+
+- Upgrade 0.2 install manifests and restore unchanged retired command wrappers safely.
+
+## 0.3.0
 
 - Attach selected local runtime resources to existing worktrees and manage leases without creating or removing Git branches/worktrees.
 - Add identity-checked process start, pause, release, expiry sweep, and an optional launchd example that the installer does not activate.
