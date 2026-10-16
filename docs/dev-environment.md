@@ -6,9 +6,10 @@ own checks require macOS, system Bash 3.2, Node.js 22.12 or newer, npm, and Shel
 
 ```bash
 npm ci
-npm test
-npm run check:shell
+npm run check
 ```
+
+`npm run check` includes the shell checks, Python safety suite, TypeScript type check and Vitest tests.
 
 The unit and temporary-repository integration tests do not touch a developer database or boot a
 simulator. The optional live queue test requires PostgreSQL 13 or newer and two schema names; see

@@ -32,16 +32,9 @@ agent_config_validate
 MAIN=$(agent_main_root)
 git -C "$MAIN" show-ref --verify --quiet "refs/heads/$AGENT_MAIN_BRANCH" \
   || fail "configured main branch '$AGENT_MAIN_BRANCH' does not exist"
-git -C "$MAIN" check-ignore -q .agent \
-  || fail '.agent must be ignored by Git before provisioning'
-for key in user.name user.email; do
-  value=$(git -C "$MAIN" config --get "$key") || fail "missing Git configuration: $key"
-  [ -n "$value" ] || fail "empty Git configuration: $key"
-done
-
 # Exercise the actual coordination write grant without touching runtime locks.
 COORDINATION=$(dirname "$AGENT_SIM_LOCK")
-REPO_LOCK=$(agent_repo_lock_path)
+REPO_LOCK=$(git -C "$MAIN" rev-parse --path-format=absolute --git-common-dir)/agent-lifecycle.lock
 python3 -I - "$COORDINATION" "$REPO_LOCK" "$AGENT_SIM_LOCK" <<'PYCHECK' \
   || fail 'coordination path is inaccessible; check permissions and the host writable-path grant'
 import os, sys

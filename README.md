@@ -1,4 +1,9 @@
-<p align="center"><img src="docs/agentslots-banner-light-asset.svg" alt="AgentSlots, local runtime isolation for concurrent coding agents" width="100%"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/agentslots-banner-dark-asset.svg">
+    <img src="docs/agentslots-banner-light-asset.svg" alt="AgentSlots: resources only when a worktree needs them" width="100%">
+  </picture>
+</p>
 
 <p align="center">
   <a href="https://github.com/hishamalward/agentslots/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/hishamalward/agentslots?color=087e82"></a>
@@ -7,120 +12,69 @@
   <img alt="Bash 3.2" src="https://img.shields.io/badge/Bash-3.2-152f38">
 </p>
 
-AgentSlots gives each coding task an isolated local workspace. A Git worktree separates files;
-AgentSlots can also assign a database, port numbers, a job-queue schema, and an exclusive simulator
-when the task needs to run the app.
+AgentSlots attaches local runtime resources to an **existing linked Git worktree**. It works with standalone worktrees as well as AgentKeel tasks; standalone use does not require an AgentKeel task or session ID. Select only what the work needs: web/mobile ports, a local database, a queue schema, or dependency preparation. AgentSlots does not create branches or worktrees, manage tasks or plans, or remove Git worktrees.
 
-It is one small runtime tool. It does not orchestrate agents, assign tasks, or manage permissions.
+## See it work
 
-## Demo
+![Recorded AgentSlots walkthrough: attach a web-only runtime, start a preview, pause it, and release its resources while both Git worktrees remain.](docs/demo.gif)
 
-![Two stack slots running independently, then one stopped while the other keeps running](docs/demo.gif)
+A real disposable web-only workflow, with abridged output. [Static view](docs/demo-poster.svg) · [Commands and recording details](docs/demo.md).
 
-The installed runtime provisions two real local stack slots, then stops
-and releases them independently. Uses disposable PostgreSQL databases and minimal HTTP servers.
+## Attach resources
 
-## Start small, add a stack when needed
+Install the pinned runtime into the project as described in the [quickstart](QUICKSTART.md), then attach resources to an existing worktree:
 
-A code-only worktree is quick and uses no database or ports:
-
-```bash
-scripts/agent-check.sh --code
-scripts/agent-up.sh feat/my-change
+```sh
+scripts/agent-slots attach --worktree /path/to/existing-worktree --service web --service db
 ```
 
-Projects that set `AGENT_PREPARE_DEFAULT=deferred` create files without dependencies. Run
-`scripts/agent-up.sh feat/my-change --prepare` before direct npm commands or tests that need them.
-`--stack` prepares automatically. Projects without that setting keep eager setup.
+Service flags are selective and repeatable: `web`, `db`, `queue`, and `mobile`. The queue service uses a separate database schema and also selects its backing database. With no `--service`, attach selects no service resources such as a database, process or port. Add `--prepare` to run the configured dependency/code generation hook without allocating any services.
 
-When the task needs a local server or database, upgrade that worktree in place:
+Use `scripts/agent-slots status --repo /path/to/project` to inspect resources and `scripts/agent-slots start web --worktree PATH` or `start mobile --worktree PATH` to start configured processes. After `pause`, run `start` again to resume. AgentSlots assigns port values and checks availability; the application binds them. Set nonoverlapping port ranges for repositories that run at the same time.
 
-```bash
-scripts/agent-check.sh
-scripts/agent-up.sh feat/my-change --stack
+## Resource lifecycle
+
+```sh
+scripts/agent-slots pause --worktree /path/to/existing-worktree
+scripts/agent-slots heartbeat --worktree /path/to/existing-worktree
+scripts/agent-slots pin --worktree /path/to/existing-worktree
+scripts/agent-slots unpin --worktree /path/to/existing-worktree
+scripts/agent-slots sweep                 # dry run
+scripts/agent-slots release --worktree /path/to/existing-worktree
 ```
 
-AgentSlots assigns the lowest available slot and derives its resource names from `AGENT_SLOT`.
-Slot 0 stays the original checkout. With the application-side pg-boss integration, only slot 0
-registers recurring queue schedules.
+`pause` stops only processes whose PID and process-start identity AgentSlots recorded; the database, env values, slot claim and worktree remain available for resume with `start`. A failed start keeps its intent and log for inspection; check `status` and the recorded log before retrying or releasing. Attach writes only its configured AgentSlots-managed keys in the worktree env file; it does not copy other values or credentials from the main worktree. Heartbeat refreshes its 30-minute lease; pin keeps it out of expiry cleanup until unpinned. `sweep` reports expired, unpinned leases by default; `--yes` attempts the same identity-checked pause, never Git cleanup. A repository sweep examines expired worktrees across owner sessions, including when invoked from another agent session; direct worktree commands still enforce the caller’s session. `release` removes only runtime resources whose ownership is proven. Git worktree removal remains the caller's responsibility.
 
-For an AgentKeel opened clone, attach its runtime before starting the printed launcher. Set
-`AGENT_REPO_ROOT` to the shared checkout and pass the clone to `--workspace`; AgentKeel continues to
-own clone import and removal. The [quickstart](QUICKSTART.md) covers the sequence and runtime
-coordination settings.
+No background daemon is installed. Heartbeats represent active use and must come from the caller; scheduling heartbeat would keep idle resources alive. An optional native launchd example schedules repository-scoped `sweep --yes`; AgentSlots never installs or activates it.
 
-```bash
-scripts/agent-status.sh
-scripts/agent-dev.sh
-scripts/agent-stop.sh 1       # pause; keep the worktree and database
-scripts/agent-down.sh 1       # release resources after work is preserved
-```
+## What it isolates
 
-`agent-reap.sh` reports possible orphans as a dry run. It only cleans resources when their
-ownership and safe removal can be established.
-
-## What gets separated
-
-| Resource | Per task behavior |
+| Resource | Behavior |
 |---|---|
-| Files | A sibling Git worktree per branch |
-| PostgreSQL | A separate cloned database for each stack slot |
-| Web and bundler | Port numbers derived from the slot and checked at setup; AgentSlots does not bind them |
-| pg-boss | With application-side integration, a separate schema; only slot 0 registers recurring schedules |
-| Exclusive simulator | One atomic lock with owner and device checks |
+| Worktree files | Supplied by Git; AgentSlots attaches without creating or deleting the worktree |
+| Web and mobile ports | Derived from configured formulas and checked for availability; the app binds them |
+| PostgreSQL | A separate local database when `db` is selected |
+| pg-boss | Optional per-worktree schema; recurring schedules remain owned by the configured main slot |
+| Simulator | Optional exclusive device lock using the existing `sim-lock` command |
 
-Port formulas are per repository. Configure nonoverlapping web and bundler ranges when multiple
-repositories run servers on the same machine. AgentSlots assigns port numbers and checks availability
-during setup; the application binds them when it starts.
-
-This is local development coordination. It does not isolate hostile processes or prevent a user
-from configuring a server to point at a shared or production service.
+This is local development coordination, not a security boundary. It cannot prevent a project from connecting to shared services or using shared credentials.
 
 ## Install and configure
 
 From a reviewed AgentSlots checkout, preview and apply the pinned runtime installer:
 
-```bash
+```sh
 python3 install.py --repo /path/to/project
 python3 install.py --repo /path/to/project --apply
 ```
 
-The installer and runtime ownership checks need Python 3.10 or newer. Updates are explicit, never
-automatic. See the [quickstart](QUICKSTART.md) for installation, migration, updates and removal.
-Project formulas and framework hooks live in `.agent-slots.conf`; review this trusted shell code
-and keep credentials in the project's env file.
+The installer and ownership checks require Python 3.10 or newer. Updates are explicit and preserve user edits to managed files. See the [quickstart](QUICKSTART.md) and [configuration guide](docs/configuration.md). Project formulas and trusted shell hooks live in `.agent-slots.conf`; credentials belong in the project's normal env files.
 
-The tool targets macOS system Bash 3.2 and BSD command-line utilities. Stack operations also need
-PostgreSQL client tools and `lsof`. Simulator locking needs Xcode command-line tools and `jq`.
+The supported runtime platform is macOS with system Bash 3.2 and BSD utilities. PostgreSQL tools and `lsof` are needed for database/status operations; simulator checks need Xcode command-line tools and `jq`.
 
 ## Works with AgentKeel
 
-[AgentKeel](https://github.com/hishamalward/agentkeel) manages task scope, permissions, reviews
-and shipping checks. AgentSlots manages each task's local workspace and runtime resources,
-including cleanup. For an existing AgentKeel project, the installer preserves its policy and
-adds the runtime coordination directory to `agentkeel.json` writable paths. AgentKeel keeps
-ownership of clone import and removal. See the [setup guide](QUICKSTART.md) for installation,
-host access and attaching runtime resources to an AgentKeel clone.
-
-## Host access for local runtime
-
-Claude Code and Codex can both run the full local lifecycle: provision a stack, start the app,
-use the simulator, and release the resources. The host session must allow local database
-connections, process inspection and Apple's simulator services.
-
-The tested restricted sandbox profiles block some of that access. This is a host permission
-setting, not a model limitation. AgentSlots checks access and manages resources; AgentKeel
-checks task permissions. Neither can override the operating system's sandbox.
-
-Choose an authorized runtime session, then run `scripts/agent-check.sh --simulator` inside it
-before starting the app. The [runtime setup steps](QUICKSTART.md#runtime-sessions-servers-databases-and-simulators)
-explain the tested Codex launch setting and its broader access. AgentSlots never changes host
-permissions automatically. Project-specific test results belong in the [acceptance record](docs/acceptance.md).
-
-## Queue integration
-
-For projects that use pg-boss, the optional helpers and live positive-control probe are documented
-in [queue isolation](docs/queue-isolation.md). The probe needs disposable PostgreSQL schemas.
+[AgentKeel](https://github.com/hishamalward/agentkeel) manages task scope and permissions. AgentKeel or a human creates the Git worktree; AgentSlots attaches and releases runtime resources for the path supplied with `--worktree`. `release` never removes the Git worktree. See the [quickstart](QUICKSTART.md#attach-an-agentkeel-worktree) for the handoff.
 
 ## Documentation
 
@@ -130,6 +84,7 @@ in [queue isolation](docs/queue-isolation.md). The probe needs disposable Postgr
 - [Queue isolation](docs/queue-isolation.md)
 - [Development environment](docs/dev-environment.md)
 - [Acceptance evidence](docs/acceptance.md)
+- [Optional launchd sweep](docs/launchd-scheduling.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 

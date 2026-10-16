@@ -22,5 +22,5 @@ await registerSchedulesForOwner(boss, async (owner) => {
 ```
 
 Unset `AGENT_SLOT` and `PGBOSS_SCHEMA` preserve pg-boss's normal behavior. Nonzero slots use the
-schema written by `agent-up.sh` and skip only recurring schedules. Run the live isolation probe
-described in `docs/queue-isolation.md` before relying on this in a new application.
+schema written by `agent-slots attach --service queue` and skip only recurring schedules. Run the live isolation probe
+described in [queue isolation](../../docs/queue-isolation.md) before relying on this in a new application.

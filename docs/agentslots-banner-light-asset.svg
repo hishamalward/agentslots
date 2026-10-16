@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 300" role="img" aria-labelledby="title desc">
   <title id="title">AgentSlots</title>
-  <desc id="desc">Local runtime isolation for concurrent coding agents.</desc>
+  <desc id="desc">Resources only when a worktree needs them.</desc>
   <rect width="1280" height="300" rx="24" fill="#fbfaf7"/>
   <g transform="translate(568 30) scale(1.2)">
     <g fill="none" stroke="#087e82" stroke-linecap="round" stroke-width="4.8">
@@ -13,5 +13,5 @@
     </g>
   </g>
   <text x="640" y="215" text-anchor="middle" fill="#152f38" font-family="ui-sans-serif,-apple-system,'Segoe UI',sans-serif" font-size="70" font-weight="700" letter-spacing="-2">Agent<tspan fill="#087e82">Slots</tspan></text>
-  <text x="640" y="260" text-anchor="middle" fill="#43535a" font-family="ui-sans-serif,-apple-system,'Segoe UI',sans-serif" font-size="24">Local runtime isolation for concurrent coding agents</text>
+  <text x="640" y="260" text-anchor="middle" fill="#43535a" font-family="ui-sans-serif,-apple-system,'Segoe UI',sans-serif" font-size="24">Resources only when a worktree needs them</text>
 </svg>

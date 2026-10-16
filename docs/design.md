@@ -1,106 +1,35 @@
-# Design: local runtime slots
+# Design: attach local resources to worktrees
 
-AgentSlots separates the local resources that a Git worktree cannot. It is intended for parallel
-coding tasks on one developer machine.
+A Git linked worktree separates source files. It does not give a local app its own database, port values, queue namespace or exclusive device. AgentSlots attaches those runtime resources to a worktree that already exists.
 
-## The collision
+## Responsibility boundary
 
-A Git worktree isolates files. It does not separate a local database, server ports, a database-backed
-job queue, or an exclusive device. If two servers run different code against the same queue, either
-server can claim a job created for the other version of the application.
+AgentSlots does not create branches or worktrees, manage task plans, or remove Git worktrees. A caller such as AgentKeel or a developer creates the linked worktree and passes its path to `scripts/agent-slots`. AgentSlots may prepare dependencies or allocate selected runtime resources. Its `release` and `sweep` operations affect runtime resources only.
 
-AgentSlots derives resource names from one integer, `AGENT_SLOT`. A code-only worktree needs no
-slot. A stack slot assigns the additional resources needed to run the project.
+Service selection is explicit: `web`, `db`, `queue` and `mobile`. No service flag means no runtime resource allocation. Queue selection also provisions a database because its schema needs a backing database. Mobile selects its configured Metro port; simulator exclusivity remains the separate `sim-lock` operation. `--prepare` runs the project's dependency/code generation hook without allocating services.
 
-## Two tiers
+## Ownership and leases
 
-| Tier | Provisions | Use it when |
-|---|---|---|
-| Code | A sibling Git worktree and configured setup hook | Editing code or running tests that need no app server |
-| Stack | A code worktree, slot number, database, env values, and configured ports | Running a server, migration, local queue, or another database-backed task |
+Attach records enough local ownership and liveness information to manage resources safely. Heartbeat refreshes the timestamp; pin suppresses lease expiry cleanup. Sweep is dry-run by default. With `--yes`, it attempts to pause only expired, unpinned leases: it stops processes only when both PID and process-start identity match the recorded owner. Pause retains database, env values, slot claim and worktree. Release separately removes only resources whose ownership markers and process identities are verified. Malformed/future state, unknown process liveness or uncertain ownership keeps resources in place.
 
-Start in code tier and upgrade in place when the task needs a stack. That keeps the common path
-cheap and leaves databases and ports for tasks that use them.
+These markers coordinate AgentSlots commands; they do not duplicate Git's worktree registry or provide general task state. State is observed from Git, the operating system and PostgreSQL when possible. A harmless leftover is safer than removing another process's resource.
 
-Slot 0 is the original checkout. It keeps the project's existing resource values and is the only
-slot allowed to register recurring queue schedules. Nonzero slots get their own resource values.
-The project configuration controls formulas and framework-specific commands.
+No background daemon is installed. Heartbeat and sweep are explicit commands. A user may arrange native scheduling, but the package does not activate a LaunchAgent or other recurring job.
 
 ## Resource boundaries
 
-| Resource | Isolation |
+| Resource | Behavior |
 |---|---|
-| Source files | One sibling worktree per branch |
-| Database | A cloned local database per stack slot |
-| Server ports | Values derived from the slot number and checked during setup; the app binds them when started |
-| pg-boss queue | A schema per slot; only slot 0 registers schedules |
-| Simulator | One machine-wide lock, checked against its owner and device |
+| Source files | Existing linked worktree supplied by the caller; never deleted by AgentSlots |
+| Web/mobile ports | Configured numbers checked for availability; application binds them |
+| PostgreSQL | Local per-worktree database when `db` or `queue` is selected |
+| pg-boss queue | Optional schema per worktree; only the configured owner slot registers recurring schedules |
+| Simulator | Optional separate exclusive lock, checked against process/device ownership |
 
-Port formulas are per repository. Concurrent repositories need nonoverlapping web and bundler port
-ranges. AgentSlots assigns port numbers and checks them during setup; it does not bind them.
+This is local coordination for trusted development, not isolation from hostile processes or shared external services. It does not stop a local app from using production credentials or shared APIs.
 
-These are coordination boundaries for trusted local work. They are not a security boundary between
-hostile processes. A user can still point a local server at a shared backend, and external API
-quotas remain shared.
+## Failure and rollback
 
-## Derive observations, verify ownership
+Provisioning checks prerequisites before writing state and tracks resources created by the current operation. Failure cleanup removes only resources that operation can prove it created. Concurrent or ambiguous ownership must refuse rather than tear down a competing invocation's resources.
 
-Worktrees, listening ports, databases, and simulator state are read from Git and the operating
-system when commands run. AgentSlots does not need a registry that can drift from those sources.
-
-Destructive actions require evidence that a resource belongs to the slot. If ownership is unclear,
-cleanup refuses and explains what to inspect. The reaper is a dry run unless explicitly told to
-act, and it does not kill an unidentified listener.
-
-Lifecycle commands serialize by canonical Git repository with a stable lock file under
-`~/.agent-slots/repos/`, named from the SHA-256 of Git's common directory. With a custom
-`AGENT_SIM_LOCK`, the `repos/` directory sits beside that lock. Nested calls inherit the open lock
-descriptor so cleanup chains do not deadlock. The simulator uses a separate mutex beside its
-lock file.
-These files coordinate access; they are not a resource registry or daemon, and the shared `.git`
-metadata is not used for lifecycle locks.
-
-Provisioning checks its prerequisites before writing state. If a later step fails, rollback removes
-only resources created by that invocation and restores any env file it changed. A failed attempt
-must not tear down a competing invocation's resources.
-
-## Project configuration
-
-The tracked `.agent-slots.conf` supplies resource formulas and shell functions for dependency setup,
-code generation, and server startup. It is sourced as Bash, so treat it as executable trusted code.
-Keep credentials in the project's env file, not in this configuration.
-
-The shared scripts target macOS system Bash 3.2 and BSD utilities. Project hooks keep framework
-commands outside the shared runtime. The default setup hook is a no-op; a project adds only the
-hooks it needs.
-
-## Queue isolation
-
-Separate databases isolate their queues. A schema per slot also keeps pg-boss clients separate
-when they share a database. A nonzero slot may process jobs in that schema but must not
-register recurring schedules. Provisioning removes the inherited queue schema from a cloned
-database so schedule rows from the source cannot fire in a non-owner slot.
-
-The invariant is: unset `AGENT_SLOT` preserves the existing single-checkout behavior, while a
-nonzero slot has a separate queue namespace and cannot create recurring schedule rows. See
-[queue isolation](queue-isolation.md) for the integration and a positive-control probe.
-
-## Resource lifecycle
-
-Pausing a task should release its running processes and exclusive device while retaining the
-worktree and database for a quick resume. Finishing or abandoning a task should release the stack
-and remove its worktree only after its changes are preserved. These operations have different
-lifecycles, so the owner chooses the appropriate command.
-
-Orphan reporting exists to make leftovers visible. Automated cleanup must refuse dirty worktrees,
-unmerged branches, live listeners, and resources whose ownership cannot be established. A harmless
-orphan is safer than deleting another task's work.
-
-## Limits
-
-- Slot 0 remains a shared checkout. Two sessions that both use it can still collide.
-- AgentSlots cannot force a session to follow its instructions or keep it from using a shared
-  backend.
-- Database isolation does not isolate external services or API quotas.
-- The supported platform is macOS. Other operating systems and cloud/container backends are outside
-  this release's scope.
+The supported target is macOS system Bash 3.2 and BSD userland. See [configuration](configuration.md) for project hooks, leases and capability checks, and [acceptance evidence](acceptance.md) for verification status.
