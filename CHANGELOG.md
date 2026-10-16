@@ -8,6 +8,7 @@ must be run against the exact release revision.
 - Attach selected local runtime resources to existing worktrees and manage leases without creating or removing Git branches/worktrees.
 - Add identity-checked process start, pause, release, expiry sweep, and an optional launchd example that the installer does not activate.
 - Install the `agent-slots` facade and its runtime helpers while preserving user edits to managed files.
+- Upgrade 0.2 install manifests and restore unchanged retired command wrappers safely.
 
 ## 0.2.0
 

@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -98,6 +99,66 @@ describe('pinned runtime installer', () => {
     expect(run(dir, '--uninstall', '--apply').status).toBe(1);
     expect(text(dir, '.agents/agentslots/scripts/agent-runtime.sh')).toBe('my change\n');
     expect(text(dir, '.agents/agentslots-install.json')).toBe(manifest);
+  });
+
+  it('migrates 0.2 manifests and restores adopted retired wrapper bytes', () => {
+    const dir = fixture();
+    expect(run(dir, '--apply').status).toBe(0);
+    const manifestPath = path.join(dir, '.agents/agentslots-install.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const name = 'scripts/agent-up.sh';
+    const bytes = '#!/bin/bash\necho old AgentSlots wrapper\n';
+    const original = '#!/bin/bash\n# adopted project wrapper\n';
+    mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    writeFileSync(path.join(dir, name), bytes, { mode: 0o755 });
+    manifest.files[name] = {
+      original: Buffer.from(original).toString('base64'),
+      original_mode: 0o640,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    };
+    manifest.version = '0.2.0';
+    manifest.revision = '77f18e544a36e610dd9bf120c112e07d5caf6463';
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    const preview = run(dir);
+    expect(preview.status, preview.stderr).toBe(0);
+    expect(preview.stdout).toContain('write  scripts/agent-up.sh');
+    expect(text(dir, name)).toBe(bytes);
+
+    const update = run(dir, '--apply');
+    expect(update.status, update.stderr).toBe(0);
+    expect(text(dir, name)).toBe(original);
+    expect(statSync(path.join(dir, name)).mode & 0o777).toBe(0o640);
+    const migrated = JSON.parse(text(dir, '.agents/agentslots-install.json'));
+    expect(migrated.version).toBe('0.3.0');
+    expect(migrated.files[name]).toBeUndefined();
+  });
+
+  it('keeps refusing an edited retired 0.2 wrapper', () => {
+    const dir = fixture();
+    expect(run(dir, '--apply').status).toBe(0);
+    const manifestPath = path.join(dir, '.agents/agentslots-install.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const name = 'scripts/agent-down.sh';
+    const bytes = '#!/bin/bash\necho old AgentSlots wrapper\n';
+    mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    writeFileSync(path.join(dir, name), bytes, { mode: 0o755 });
+    manifest.files[name] = {
+      original: null,
+      original_mode: 0o644,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    };
+    manifest.version = '0.2.0';
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const userEdit = '#!/bin/bash\n# user-owned change\n';
+    writeFileSync(path.join(dir, name), userEdit);
+    const before = text(dir, '.agents/agentslots-install.json');
+
+    const preview = run(dir);
+    expect(preview.status).toBe(1);
+    expect(preview.stderr).toContain(`managed file changed: ${name}`);
+    expect(text(dir, name)).toBe(userEdit);
+    expect(text(dir, '.agents/agentslots-install.json')).toBe(before);
   });
 
   it('refuses symlinks in destination parents without writing through them', () => {

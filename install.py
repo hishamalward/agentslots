@@ -18,6 +18,10 @@ SOURCE = Path(__file__).resolve().parent
 VENDOR = Path(".agents/agentslots")
 MANIFEST = Path(".agents/agentslots-install.json")
 COMMANDS = ("agent-check", "sim-lock", "agent-slots")
+RETIRED_COMMANDS = (
+    "agent-up", "agent-down", "agent-reap", "agent-status", "agent-stop", "agent-dev", "agent-mobile",
+)
+RETIRED_WRAPPERS = {f"scripts/{command}.sh" for command in RETIRED_COMMANDS}
 EDITABLE = ("AGENTS.md", ".agent-slots.conf", ".gitignore", "agentkeel.json")
 BLOCK = (b"<!-- agentslots:start -->\n"
          b"## AgentSlots runtime resources\n\n"
@@ -182,7 +186,8 @@ def load_manifest(root):
             allowed = name.startswith(str(VENDOR) + "/") or name in {
                 *EDITABLE, "scripts/lib/agent-slot.sh",
                 *("scripts/agent-slots" if command == "agent-slots" else f"scripts/{command}.sh"
-                  for command in COMMANDS)}
+                  for command in COMMANDS),
+                *RETIRED_WRAPPERS}
             if not allowed:
                 raise ValueError(f"unexpected managed path {name}")
             safe_path(root, name)
