@@ -107,21 +107,19 @@ describe('host simulator claims, mocked devices only', () => {
     } finally { rmSync(f.base, { recursive: true, force: true }); }
   });
 
-  it('retains the claim when shutdown fails and the device is booted or cannot be verified', async () => {
-    for (const state of ['Booted', '']) {
-      const f = fixture(), env = simulatorMocks(f);
-      try {
-        const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
-        expect(acquired.code, acquired.stderr).toBe(0);
-        const original = readFileSync(env.AGENT_SIM_LOCK, 'utf8');
-        mock(f.bin, 'xcrun', 'case "$*" in "simctl shutdown fixture-device") exit 12 ;; "simctl list devices -j") printf "{}\\n" ;; *) exit 14 ;; esac');
-        mock(f.bin, 'jq', `cat >/dev/null; printf '%s\\n' '${state}'`);
-        const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1'], env);
-        expect(released.code).toBe(1);
-        expect(released.stderr).toContain('keeping its claim');
-        expect(readFileSync(env.AGENT_SIM_LOCK, 'utf8')).toBe(original);
-      } finally { rmSync(f.base, { recursive: true, force: true }); }
-    }
+  it.each(['Booted', ''])('retains the claim when shutdown fails and device state is %j', async (state) => {
+    const f = fixture(), env = simulatorMocks(f);
+    try {
+      const acquired = await run(f.repo, ['scripts/sim-lock.sh', 'acquire', '1'], env);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      const original = readFileSync(env.AGENT_SIM_LOCK, 'utf8');
+      mock(f.bin, 'xcrun', 'case "$*" in "simctl shutdown fixture-device") exit 12 ;; "simctl list devices -j") printf "{}\\n" ;; *) exit 14 ;; esac');
+      mock(f.bin, 'jq', `cat >/dev/null; printf '%s\\n' '${state}'`);
+      const released = await run(f.repo, ['scripts/sim-lock.sh', 'release', '1'], env);
+      expect(released.code).toBe(1);
+      expect(released.stderr).toContain('keeping its claim');
+      expect(readFileSync(env.AGENT_SIM_LOCK, 'utf8')).toBe(original);
+    } finally { rmSync(f.base, { recursive: true, force: true }); }
   });
 
   it('releases the claim after a failed shutdown only when the device is confirmed Shutdown', async () => {
