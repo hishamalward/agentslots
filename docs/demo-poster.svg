@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="680" viewBox="0 0 1080 680" role="img" aria-labelledby="title desc">
+<title id="title">AgentSlots — Release resources. Keep your Git work.</title><desc id="desc">Recorded web-only workflow using two disposable Git worktrees. Commands are real; output is abridged. No database is provisioned. Release keeps Git worktrees.</desc>
+<rect width="1080" height="680" rx="24" fill="#fbfaf7"/>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" fill="#152f38">
+<text x="42" y="46" font-size="17" font-weight="700" fill="#087e82">AgentSlots</text><text x="1038" y="46" text-anchor="end" font-size="12" letter-spacing="1.4" fill="#53666a">RECORDED WALKTHROUGH · 5 / 5</text>
+<text x="42" y="99" font-size="31" font-weight="700">Release resources. Keep your Git work.</text><text x="42" y="132" font-size="17" fill="#53666a">AgentSlots releases its runtime. Keel or the caller handles Git cleanup.</text>
+<rect x="42" y="163" width="190" height="37" rx="9" fill="#e9eeeb"/><text x="137" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="#53666a">Existing worktrees</text>
+<rect x="243" y="163" width="190" height="37" rx="9" fill="#e9eeeb"/><text x="338" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="#53666a">Attach web</text>
+<rect x="444" y="163" width="190" height="37" rx="9" fill="#e9eeeb"/><text x="539" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="#53666a">Start preview</text>
+<rect x="645" y="163" width="190" height="37" rx="9" fill="#e9eeeb"/><text x="740" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="#53666a">Pause</text>
+<rect x="846" y="163" width="190" height="37" rx="9" fill="#087e82"/><text x="941" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="#ffffff">Release</text>
+<rect x="42" y="225" width="487" height="142" rx="16" fill="#ffffff" stroke="#d5dfdb"/><rect x="42" y="225" width="5" height="142" rx="2" fill="#087e82"/><text x="66" y="257" font-size="14" font-family="ui-monospace,monospace" fill="#53666a">task/frontend</text><text x="66" y="301" font-size="26" font-weight="650">Released</text><text x="66" y="335" font-size="15" fill="#53666a">No runtime claim</text>
+<rect x="551" y="225" width="487" height="142" rx="16" fill="#ffffff" stroke="#d5dfdb"/><rect x="551" y="225" width="5" height="142" rx="2" fill="#65767b"/><text x="575" y="257" font-size="14" font-family="ui-monospace,monospace" fill="#53666a">task/docs</text><text x="575" y="301" font-size="26" font-weight="650">No runtime needed</text><text x="575" y="335" font-size="15" fill="#53666a">Tracked docs · no services</text>
+<rect x="42" y="389" width="996" height="190" rx="16" fill="#152f38"/><circle cx="64" cy="411" r="4" fill="#43b8ae"/><text x="77" y="416" font-size="12" fill="#b9d4d3">COMMAND + RESULT · ABRIDGED</text><g font-family="ui-monospace,Menlo,monospace" font-size="17"><text x="64" y="454" fill="#67e0d0">$ agent-slots release --worktree /demo/frontend</text>
+<text x="64" y="493" fill="#edf5f3">released runtime resources for /demo/frontend</text>
+<text x="64" y="523" fill="#edf5f3">Git worktree retained · both task branches still exist</text>
+</g><text x="42" y="615" font-size="14" fill="#53666a">Selective services · owned processes · Git worktrees stay with the caller</text><text x="42" y="645" font-size="12" fill="#687c80">Idle pause uses an explicitly scheduled sweep; no scheduler is installed. Recording paths are shortened.</text></g></svg>

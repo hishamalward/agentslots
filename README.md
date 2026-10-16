@@ -1,4 +1,9 @@
-<p align="center"><img src="docs/agentslots-banner-light-asset.svg" alt="AgentSlots, local runtime resources for linked worktrees" width="100%"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/agentslots-banner-dark-asset.svg">
+    <img src="docs/agentslots-banner-light-asset.svg" alt="AgentSlots: resources only when a worktree needs them" width="100%">
+  </picture>
+</p>
 
 <p align="center">
   <a href="https://github.com/hishamalward/agentslots/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/hishamalward/agentslots?color=087e82"></a>
@@ -9,7 +14,11 @@
 
 AgentSlots attaches local runtime resources to an **existing linked Git worktree**. It works with standalone worktrees as well as AgentKeel tasks; standalone use does not require an AgentKeel task or session ID. Select only what the work needs: web/mobile ports, a local database, a queue schema, or dependency preparation. AgentSlots does not create branches or worktrees, manage tasks or plans, or remove Git worktrees.
 
-It is a small local runtime tool. It does not orchestrate agents or grant project permissions.
+## See it work
+
+![Recorded AgentSlots walkthrough: attach a web-only runtime, start a preview, pause it, and release its resources while both Git worktrees remain.](docs/demo.gif)
+
+A real disposable web-only workflow, with abridged output. [Static view](docs/demo-poster.svg) · [Commands and recording details](docs/demo.md).
 
 ## Attach resources
 
