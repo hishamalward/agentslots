@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const root = path.resolve(__dirname, '..');
+const packageVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const temporary: string[] = [];
 function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'agentslots-install-'));
@@ -130,7 +131,7 @@ describe('pinned runtime installer', () => {
     expect(text(dir, name)).toBe(original);
     expect(statSync(path.join(dir, name)).mode & 0o777).toBe(0o640);
     const migrated = JSON.parse(text(dir, '.agents/agentslots-install.json'));
-    expect(migrated.version).toBe('0.3.0');
+    expect(migrated.version).toBe(packageVersion);
     expect(migrated.files[name]).toBeUndefined();
   });
 
