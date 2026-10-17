@@ -347,6 +347,15 @@ def stop_process(process, worktree):
         except PermissionError as error:
             raise Refused(f"managed process {pid} liveness is unknown") from error
 
+    def verify_identity(now, message):
+        if now is None:
+            raise Refused(message)
+        if any(now.get(key) != expected[key] for key in ("pid", "started", "pgid")):
+            raise Refused(f"managed process {pid} was replaced or moved; preserving it")
+        cwd = now.get("cwd")
+        if not isinstance(cwd, str) or (cwd != worktree and not cwd.startswith(worktree + os.sep)):
+            raise Refused(f"managed process {pid} no longer has a worktree-owned cwd")
+
     if not alive():
         try:
             os.killpg(expected["pgid"], 0)
@@ -356,12 +365,7 @@ def stop_process(process, worktree):
             raise Refused(f"managed process group {expected['pgid']} liveness is unknown") from error
         raise Refused(f"managed process leader {pid} exited but its process group remains; preserving it")
     now = proc_identity(pid)
-    if now is None:
-        raise Refused(f"managed process {pid} is alive but unidentifiable; preserving it")
-    if now != expected:
-        raise Refused(f"managed process {pid} was replaced or moved; preserving it")
-    if now["cwd"] != worktree and not now["cwd"].startswith(worktree + os.sep):
-        raise Refused(f"managed process {pid} no longer has a worktree-owned cwd")
+    verify_identity(now, f"managed process {pid} is alive but unidentifiable; preserving it")
     os.killpg(expected["pgid"], 15)
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
@@ -379,8 +383,7 @@ def stop_process(process, worktree):
             # Keep checking within the grace period; never signal an unknown receipt.
             time.sleep(0.1)
             continue
-        if now != expected:
-            raise Refused(f"managed process {pid} identity became unknown during shutdown")
+        verify_identity(now, f"managed process {pid} identity became unknown during shutdown")
         time.sleep(0.1)
     if not alive():
         try:
@@ -391,8 +394,7 @@ def stop_process(process, worktree):
             raise Refused(f"managed process group {expected['pgid']} liveness is unknown") from error
         raise Refused(f"managed process leader {pid} exited but child processes remain; preserving the group")
     now = proc_identity(pid)
-    if now is None or now != expected:
-        raise Refused(f"managed process {pid} identity changed during shutdown")
+    verify_identity(now, f"managed process {pid} identity changed during shutdown")
     os.killpg(expected["pgid"], 9)
     time.sleep(0.1)
     try:
@@ -403,8 +405,7 @@ def stop_process(process, worktree):
         raise Refused(f"managed process group {expected['pgid']} liveness is unknown after shutdown") from error
     if alive():
         now = proc_identity(pid)
-        if now is None or now != expected:
-            raise Refused(f"managed process {pid} identity became unknown after shutdown")
+        verify_identity(now, f"managed process {pid} identity became unknown after shutdown")
     raise Refused(f"managed process group {expected['pgid']} did not stop")
 
 

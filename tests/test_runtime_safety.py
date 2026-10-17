@@ -160,6 +160,49 @@ class RuntimeSafetyTests(unittest.TestCase):
                 runtime.stop_process(process, str(self.trees.one))
         kill.assert_called_once_with(23456, 0)
 
+    def test_process_may_change_cwd_within_owned_worktree(self):
+        worktree = str(self.trees.one)
+        process = {"pid": 23456, "started": "old", "cwd": worktree, "pgid": 23456}
+        moved = {**process, "cwd": str(self.trees.one / "apps" / "mobile")}
+
+        def killpg(pgid, signal):
+            if signal == 0:
+                raise ProcessLookupError
+
+        with mock.patch.object(runtime.os, "kill"), \
+                mock.patch.object(runtime.os, "killpg", side_effect=killpg) as killpg_mock, \
+                mock.patch.object(runtime, "proc_identity", return_value=moved), \
+                mock.patch.object(runtime.time, "monotonic", side_effect=(0, 6)), \
+                mock.patch.object(runtime.time, "sleep"):
+            runtime.stop_process(process, worktree)
+
+        self.assertEqual(killpg_mock.call_args_list, [mock.call(23456, 15), mock.call(23456, 9), mock.call(23456, 0)])
+
+    def test_process_moved_outside_worktree_is_preserved(self):
+        worktree = str(self.trees.one)
+        process = {"pid": 23456, "started": "old", "cwd": worktree, "pgid": 23456}
+        moved = {**process, "cwd": str(Path(self.temp.name) / "outside")}
+        with mock.patch.object(runtime.os, "kill"), \
+                mock.patch.object(runtime.os, "killpg") as killpg_mock, \
+                mock.patch.object(runtime, "proc_identity", return_value=moved):
+            with self.assertRaisesRegex(runtime.Refused, "no longer has a worktree-owned cwd"):
+                runtime.stop_process(process, worktree)
+        killpg_mock.assert_not_called()
+
+    def test_process_moved_outside_worktree_during_shutdown_is_not_force_killed(self):
+        worktree = str(self.trees.one)
+        process = {"pid": 23456, "started": "old", "cwd": worktree, "pgid": 23456}
+        inside = {**process, "cwd": str(self.trees.one / "apps" / "mobile")}
+        outside = {**process, "cwd": str(Path(self.temp.name) / "outside")}
+        with mock.patch.object(runtime.os, "kill"), \
+                mock.patch.object(runtime.os, "killpg") as killpg_mock, \
+                mock.patch.object(runtime, "proc_identity", side_effect=(inside, outside)), \
+                mock.patch.object(runtime.time, "monotonic", side_effect=(0, 1, 6)), \
+                mock.patch.object(runtime.time, "sleep"):
+            with self.assertRaisesRegex(runtime.Refused, "no longer has a worktree-owned cwd"):
+                runtime.stop_process(process, worktree)
+        self.assertEqual(killpg_mock.call_args_list, [mock.call(23456, 15)])
+
     def test_shutdown_checks_group_when_leader_exits_at_grace_deadline(self):
         process = {"pid": 23456, "started": "old", "cwd": str(self.trees.one), "pgid": 23456}
         alive_checks = iter((True, True, False))
