@@ -1,6 +1,6 @@
 {
   "name": "agentslots",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local runtime resources for existing linked worktrees: services, databases, queues, and devices",
   "license": "MIT",

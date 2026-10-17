@@ -5,6 +5,9 @@ must be run against the exact release revision.
 
 ## Unreleased
 
+## 0.3.1
+
+- Fix cleanup when managed processes change cwd within their owned worktree, while retaining identity and cwd-boundary checks.
 - Upgrade 0.2 install manifests and restore unchanged retired command wrappers safely.
 - Replace the vulnerable development-only source-map-js 1.2.1 lock entry with patched 1.2.2.
 
