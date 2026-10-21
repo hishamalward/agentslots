@@ -25,7 +25,7 @@ RETIRED_WRAPPERS = {f"scripts/{command}.sh" for command in RETIRED_COMMANDS}
 EDITABLE = ("AGENTS.md", ".agent-slots.conf", ".gitignore")
 BLOCK = (b"<!-- agentslots:start -->\n"
          b"## AgentSlots runtime resources\n\n"
-         b"These runtime instructions complement task permissions; they do not grant them.\n"
+         b"These runtime instructions attach resources to a worktree; they never create or remove worktrees.\n"
          b"Read `.agents/agentslots/README.md` for the installed runtime contract.\n"
          b"Run `scripts/agent-check.sh --code` in the host session that will do the work.\n"
          b"Attach only the resources needed to an existing linked worktree with\n"
