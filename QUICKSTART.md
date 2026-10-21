@@ -13,8 +13,6 @@ python3 install.py --repo /path/to/project --apply
 
 The installer places the pinned runtime under `.agents/agentslots/`, adds the `scripts/agent-slots` facade and the capability-check/device-lock commands, and adds a managed guidance block to `AGENTS.md` without replacing other instructions. It copies `.agent-slots.conf.example` only if project configuration is missing. It does not fetch updates, change host settings or commit for you.
 
-If `agentkeel.json` exists, the installer preserves its policy and may add the configured coordination directory to `writable`. For a custom `AGENT_SIM_LOCK`, pass `--coordination-dir /absolute/path/to/its/parent` to preview and apply. The installer does not source project shell configuration to infer this path.
-
 If scripts collide with installed wrappers, inspect them and use `--adopt-existing` only when you intend to replace them. The manifest retains original bytes and modes for uninstall. A reviewed clean source checkout makes the recorded revision reproducible; when `source_dirty` is true, manifest hashes describe the installed payload.
 
 ## 2. Configure
@@ -29,7 +27,7 @@ git check-ignore -q .agent
 
 ## 3. Attach to an existing worktree
 
-AgentSlots never creates a branch or worktree. Create or select one through Git, AgentKeel or your existing workflow, then attach only the resources the work needs. Standalone use requires no AgentKeel task/session IDs:
+AgentSlots never creates a branch or worktree. Create or select one through Git or your own script (for example `scripts/workstream`), then attach only the resources the work needs:
 
 ```sh
 scripts/agent-check.sh --code
@@ -61,15 +59,15 @@ scripts/agent-check.sh --simulator
 
 These checks report local permissions and prerequisites; AgentSlots never changes the host sandbox or retries outside it. A restricted host profile that blocks PostgreSQL, process inspection or CoreSimulator cannot run the corresponding service.
 
-## Attach an AgentKeel worktree
+## Attach from a repo script
 
-AgentKeel owns task permissions and creates the task worktree. AgentSlots accepts the existing linked worktree path, whether it was created by AgentKeel or independently:
+You or a repo script (for example `scripts/workstream`) create the worktree and call `agent-slots attach`. AgentSlots accepts any existing linked worktree path:
 
 ```sh
-scripts/agent-slots attach --worktree /path/to/agentkeel-task-worktree --service web --service db
+scripts/agent-slots attach --worktree /path/to/worktree --service web --service db
 ```
 
-AgentSlots coordinates runtime resources only. `scripts/agent-slots release --worktree PATH` leaves Git branch and worktree cleanup to AgentKeel or the caller. The installer may add the coordination path to an existing `agentkeel.json`; review that policy change. It does not grant host permissions or add access to `.git`.
+AgentSlots coordinates runtime resources only. `scripts/agent-slots release --worktree PATH` leaves Git branch and worktree cleanup to the caller. The installer does not grant host permissions or add access to `.git`.
 
 ## 4. Inspect, pause, and release
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const CLI = path.resolve(__dirname, '../scripts/agent-slots');
 
-describe('Git ownership stays with Keel or the caller', () => {
+describe('Git ownership stays with the caller', () => {
   let root: string, primary: string, tree: string;
   const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const run = (...args: string[]) => spawnSync(CLI, args, {

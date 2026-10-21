@@ -14,8 +14,7 @@ Disposable service smokes, separate from CI:
 
 The suite covers these acceptance boundaries:
 
-- standalone attach accepts an existing linked worktree without Keel task/session IDs and never creates a branch or worktree;
-- a Keel-managed worktree validates the recorded workspace identity;
+- standalone attach accepts an existing linked worktree and never creates a branch or worktree;
 - service selection allocates only the named resources, with queue selecting its database;
 - heartbeat refreshes the lease, pin/unpin controls expiry eligibility, and sweep is dry-run unless `--yes` is explicit;
 - release and sweep never remove Git worktrees or branches;

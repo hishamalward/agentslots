@@ -22,4 +22,4 @@ A cleanup path should be tested against a competing provisioner. Record ownershi
 
 ## Keep responsibility boundaries small
 
-AgentKeel or a developer owns task permissions and Git worktree lifecycle. AgentSlots attaches and releases runtime resources for an existing worktree. Project goals and progress stay in the project's existing state document; AgentSlots does not create plans or handovers.
+The user or a repo script owns the Git worktree lifecycle. AgentSlots attaches and releases runtime resources for an existing worktree. Project goals and progress stay in the project's existing state document; AgentSlots does not create plans or handovers.
