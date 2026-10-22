@@ -31,11 +31,7 @@ Projects may define hooks for dependency/code generation preparation, server lau
 
 See `.agent-slots.conf.example` for the current hook signatures and behavior.
 
-## AgentKeel policy integration
-
-When `agentkeel.json` exists, the installer preserves its current contents and adds the coordination directory to `writable` when needed. The default is `~/.agent-slots`; for a custom `AGENT_SIM_LOCK`, pass `--coordination-dir` with its absolute parent. The installer does not source `.agent-slots.conf` to infer executable configuration. This grant permits coordination-file access; it does not grant host process, PostgreSQL, simulator or Git metadata access.
-
-AgentKeel owns task permissions and worktree lifecycle. AgentSlots attaches to an existing linked worktree and releases runtime resources only. It never imports code or deletes Git branches/worktrees.
+The user or a repo script owns the Git worktree lifecycle. AgentSlots attaches to an existing linked worktree and releases runtime resources only. It never imports code or deletes Git branches/worktrees.
 
 ## Coordination and lease state
 

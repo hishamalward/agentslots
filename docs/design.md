@@ -4,7 +4,7 @@ A Git linked worktree separates source files. It does not give a local app its o
 
 ## Responsibility boundary
 
-AgentSlots does not create branches or worktrees, manage task plans, or remove Git worktrees. A caller such as AgentKeel or a developer creates the linked worktree and passes its path to `scripts/agent-slots`. AgentSlots may prepare dependencies or allocate selected runtime resources. Its `release` and `sweep` operations affect runtime resources only.
+AgentSlots does not create branches or worktrees, manage task plans, or remove Git worktrees. The user or a repo script (for example `scripts/workstream`) creates the linked worktree and passes its path to `scripts/agent-slots`. AgentSlots may prepare dependencies or allocate selected runtime resources. Its `release` and `sweep` operations affect runtime resources only.
 
 Service selection is explicit: `web`, `db`, `queue` and `mobile`. No service flag means no runtime resource allocation. Queue selection also provisions a database because its schema needs a backing database. Mobile selects its configured Metro port; simulator exclusivity remains the separate `sim-lock` operation. `--prepare` runs the project's dependency/code generation hook without allocating services.
 

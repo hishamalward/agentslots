@@ -12,7 +12,7 @@
   <img alt="Bash 3.2" src="https://img.shields.io/badge/Bash-3.2-152f38">
 </p>
 
-AgentSlots attaches local runtime resources to an **existing linked Git worktree**. It works with standalone worktrees as well as AgentKeel tasks; standalone use does not require an AgentKeel task or session ID. Select only what the work needs: web/mobile ports, a local database, a queue schema, or dependency preparation. AgentSlots does not create branches or worktrees, manage tasks or plans, or remove Git worktrees.
+AgentSlots attaches local runtime resources to an **existing linked Git worktree**. You or a repo script invoke it with the path of a worktree you created. Select only what the work needs: web/mobile ports, a local database, a queue schema, or dependency preparation. AgentSlots does not create branches or worktrees, manage tasks or plans, or remove Git worktrees.
 
 ## See it work
 
@@ -71,10 +71,6 @@ python3 install.py --repo /path/to/project --apply
 The installer and ownership checks require Python 3.10 or newer. Updates are explicit and preserve user edits to managed files. See the [quickstart](QUICKSTART.md) and [configuration guide](docs/configuration.md). Project formulas and trusted shell hooks live in `.agent-slots.conf`; credentials belong in the project's normal env files.
 
 The supported runtime platform is macOS with system Bash 3.2 and BSD utilities. PostgreSQL tools and `lsof` are needed for database/status operations; simulator checks need Xcode command-line tools and `jq`.
-
-## Works with AgentKeel
-
-[AgentKeel](https://github.com/hishamalward/agentkeel) manages task scope and permissions. AgentKeel or a human creates the Git worktree; AgentSlots attaches and releases runtime resources for the path supplied with `--worktree`. `release` never removes the Git worktree. See the [quickstart](QUICKSTART.md#attach-an-agentkeel-worktree) for the handoff.
 
 ## Documentation
 

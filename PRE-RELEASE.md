@@ -12,7 +12,7 @@ Before publishing a release:
 
 - Run `npm ci`, `npm run check`, `git diff --check`, and `git fsck --full` from a clean checkout.
 - Exercise the installer preview, apply, update refusal for a modified managed file, adoption
-  backup, existing AgentKeel policy preservation/coordination grants, and uninstall
+  backup, and uninstall
   restore/preserve paths in disposable fixture repositories.
 - Run `scripts/agent-check.sh --code`, the default stack check, and `--simulator` in the actual
   host session. Record failures without permission escalation; a successful ordinary-host check
@@ -22,7 +22,7 @@ Before publishing a release:
 - Run the local multi-slot lifecycle on macOS for the exact candidate revision. Record whether
   stack provisioning, ownership checks, pause, cleanup, and the simulator lock passed. Keep prior
   acceptance as historical evidence; do not merge it with a new run.
-- For AgentKeel-managed linked worktrees, record local PostgreSQL, process inspection/cleanup, and
+- For linked worktrees, record local PostgreSQL, process inspection/cleanup, and
   CoreSimulator results under each host's active profile. Code-tier checks do not establish full
   runtime support. Current restricted profiles that deny a prerequisite are unsupported. Explicitly
   authorized full host access is a separate mode and must be labeled as such; never automatically
